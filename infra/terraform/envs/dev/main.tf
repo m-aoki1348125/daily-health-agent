@@ -1,0 +1,184 @@
+terraform {
+  required_version = ">= 1.6.0"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.26"
+    }
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+locals {
+  name_prefix = "daily-health-${var.environment}"
+  secret_names = [
+    "fitbit-client-id",
+    "fitbit-client-secret",
+    "fitbit-refresh-token",
+    "openai-api-key",
+    "claude-api-key",
+    "line-channel-access-token",
+    "db-password",
+    "drive-root-folder-id",
+  ]
+  plain_env = {
+    APP_ENV             = var.environment
+    TIMEZONE            = var.timezone
+    FITBIT_CLIENT_MODE  = "api"
+    GOOGLE_DRIVE_MODE   = "api"
+    LINE_CLIENT_MODE    = "api"
+    LLM_PROVIDER        = "openai"
+    LLM_MODEL_NAME      = "gpt-4.1-mini"
+    DATABASE_URL        = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
+  }
+  secret_env = {
+    FITBIT_CLIENT_ID = { secret = "fitbit-client-id", version = "latest" }
+    FITBIT_CLIENT_SECRET = { secret = "fitbit-client-secret", version = "latest" }
+    FITBIT_REFRESH_TOKEN = { secret = "fitbit-refresh-token", version = "latest" }
+    OPENAI_API_KEY = { secret = "openai-api-key", version = "latest" }
+    CLAUDE_API_KEY = { secret = "claude-api-key", version = "latest" }
+    LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
+    DRIVE_ROOT_FOLDER_ID = { secret = "drive-root-folder-id", version = "latest" }
+  }
+}
+
+resource "google_project_service" "services" {
+  for_each = toset([
+    "artifactregistry.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "run.googleapis.com",
+    "secretmanager.googleapis.com",
+    "sqladmin.googleapis.com",
+    "iam.googleapis.com",
+    "compute.googleapis.com",
+  ])
+  project = var.project_id
+  service = each.value
+}
+
+resource "google_artifact_registry_repository" "repo" {
+  repository_id = var.artifact_registry_repository
+  location      = var.region
+  format        = "DOCKER"
+}
+
+module "service_accounts" {
+  source      = "../../modules/service_accounts"
+  project_id  = var.project_id
+  name_prefix = local.name_prefix
+  job_roles = [
+    "roles/logging.logWriter",
+    "roles/secretmanager.secretAccessor",
+    "roles/cloudsql.client",
+    "roles/drive.admin",
+  ]
+  scheduler_roles = [
+    "roles/run.invoker",
+  ]
+}
+
+module "secrets" {
+  source       = "../../modules/secrets"
+  secret_names = local.secret_names
+}
+
+module "cloud_sql" {
+  source            = "../../modules/cloud_sql"
+  name_prefix       = local.name_prefix
+  region            = var.region
+  db_tier           = var.db_tier
+  private_network   = var.private_network
+  database_name     = "health_agent"
+  database_user     = "health_agent"
+  database_password = var.db_password
+}
+
+module "daily_job" {
+  source                = "../../modules/cloud_run_job"
+  name_prefix           = local.name_prefix
+  region                = var.region
+  job_name              = "daily"
+  image                 = var.cloud_run_image
+  service_account_email = module.service_accounts.job_service_account_email
+  args                  = ["-m", "app.batch.run_daily_job"]
+  plain_env             = local.plain_env
+  secret_env            = local.secret_env
+  cpu                   = "1"
+  memory                = "512Mi"
+  timeout_seconds       = 900
+}
+
+module "weekly_job" {
+  source                = "../../modules/cloud_run_job"
+  name_prefix           = local.name_prefix
+  region                = var.region
+  job_name              = "weekly"
+  image                 = var.cloud_run_image
+  service_account_email = module.service_accounts.job_service_account_email
+  args                  = ["-m", "app.batch.run_weekly_job"]
+  plain_env             = local.plain_env
+  secret_env            = local.secret_env
+  cpu                   = "1"
+  memory                = "512Mi"
+  timeout_seconds       = 900
+}
+
+module "monthly_job" {
+  source                = "../../modules/cloud_run_job"
+  name_prefix           = local.name_prefix
+  region                = var.region
+  job_name              = "monthly"
+  image                 = var.cloud_run_image
+  service_account_email = module.service_accounts.job_service_account_email
+  args                  = ["-m", "app.batch.run_monthly_job"]
+  plain_env             = local.plain_env
+  secret_env            = local.secret_env
+  cpu                   = "1"
+  memory                = "512Mi"
+  timeout_seconds       = 900
+}
+
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+module "daily_scheduler" {
+  source                          = "../../modules/scheduler"
+  name_prefix                     = local.name_prefix
+  job_name                        = "daily"
+  region                          = var.region
+  schedule                        = var.daily_schedule
+  timezone                        = var.timezone
+  project_number                  = data.google_project.current.number
+  cloud_run_job_name              = module.daily_job.name
+  scheduler_service_account_email = module.service_accounts.scheduler_service_account_email
+}
+
+module "weekly_scheduler" {
+  source                          = "../../modules/scheduler"
+  name_prefix                     = local.name_prefix
+  job_name                        = "weekly"
+  region                          = var.region
+  schedule                        = var.weekly_schedule
+  timezone                        = var.timezone
+  project_number                  = data.google_project.current.number
+  cloud_run_job_name              = module.weekly_job.name
+  scheduler_service_account_email = module.service_accounts.scheduler_service_account_email
+}
+
+module "monthly_scheduler" {
+  source                          = "../../modules/scheduler"
+  name_prefix                     = local.name_prefix
+  job_name                        = "monthly"
+  region                          = var.region
+  schedule                        = var.monthly_schedule
+  timezone                        = var.timezone
+  project_number                  = data.google_project.current.number
+  cloud_run_job_name              = module.monthly_job.name
+  scheduler_service_account_email = module.service_accounts.scheduler_service_account_email
+}

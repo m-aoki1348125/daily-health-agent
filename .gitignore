@@ -1,0 +1,14 @@
+.venv/
+.venv311/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.local_drive/
+.verify_drive/
+build/
+dist/
+*.egg-info/
