@@ -51,6 +51,10 @@ class ClaudeProvider(LLMProvider):
             return preferred
 
         fallback_candidates = [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-6",
             "claude-sonnet-4-20250514",
             "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
@@ -114,8 +118,17 @@ def _system_prompt() -> str:
     return (
         "You are a conservative health coach, not a physician. "
         "Do not diagnose. Do not claim emergencies. "
-        "Explain rule-based findings and provide structured daily and long-term guidance. "
-        "Return strict JSON only."
+        "The input facts are already computed by rules and trend analysis, "
+        "so do not invent metrics. "
+        "Write `summary` as a short factual recap of yesterday's health data "
+        "and rule-based status. "
+        "Write `long_term_comment` as a medium-term to long-term interpretation "
+        "using weekly_trends, "
+        "monthly_trends, and repeated patterns in the input. "
+        "Make `today_actions` concrete and modest. "
+        "Return strict JSON only with exactly these keys: "
+        "risk_level, summary, key_findings, today_actions, exercise_advice, sleep_advice, "
+        "caffeine_advice, medical_note, long_term_comment."
     )
 
 

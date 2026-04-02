@@ -16,6 +16,8 @@ class NotificationService:
     def build_message(self, report: DailyReport) -> str:
         trends = report.trends
         advice = report.advice
+        weekly_trends = list(report.source_summary.get("weekly_trends", []))
+        monthly_trends = list(report.source_summary.get("monthly_trends", []))
         sleep_hours = report.metrics.sleep_minutes // 60
         sleep_minutes = report.metrics.sleep_minutes % 60
         sleep_delta = (
@@ -26,7 +28,16 @@ class NotificationService:
             if trends.resting_hr_vs_30d_avg is not None
             else "N/A"
         )
+        fact_bullets = "\n".join(f"- {item}" for item in advice.key_findings[:3])
+        if not fact_bullets:
+            fact_bullets = "- 目立つ悪化サインはありません"
         today_actions = "\n".join(f"- {item}" for item in advice.today_actions[:3])
+        long_term_items = [
+            *(str(item) for item in weekly_trends[:2]),
+            *(str(item) for item in monthly_trends[:1]),
+            advice.long_term_comment,
+        ]
+        long_term_lines = "\n".join(f"- {item}" for item in long_term_items if item)
         return (
             f"今日の健康サマリー {report.date.isoformat()}\n\n"
             f"コンディション: {report.rule_evaluation.risk_level.title()}\n"
@@ -34,8 +45,9 @@ class NotificationService:
             f"（14日平均より {sleep_delta}）\n"
             f"安静時心拍: {resting_hr_delta}\n"
             f"前日歩数: {report.metrics.steps:,}歩\n\n"
+            f"昨日の事実\n{fact_bullets}\n\n"
             f"今日のおすすめ\n{today_actions}\n\n"
-            f"長期コメント\n- {advice.long_term_comment}\n\n"
+            f"中長期の分析\n{long_term_lines}\n\n"
             "詳細レポートは Drive に保存済みです"
         )
 
