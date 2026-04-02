@@ -21,6 +21,7 @@ def settings(tmp_path: Path) -> Settings:
         line_client_mode="mock",
         llm_provider="mock",
         health_agent_date="2026-04-02",
+        historical_bootstrap_days=14,
     )
 
 

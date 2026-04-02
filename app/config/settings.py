@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     fitbit_client_id: str | None = None
     fitbit_client_secret: str | None = None
     fitbit_refresh_token: str | None = None
+    historical_bootstrap_enabled: bool = True
+    historical_bootstrap_days: int = Field(default=90, ge=0, le=365)
 
     google_drive_mode: Literal["local", "api"] = "local"
     drive_root_folder_id: str = "HealthAgent"

@@ -16,10 +16,13 @@ def test_daily_job_end_to_end(session: Session, settings: Settings) -> None:
     session.commit()
 
     assert result["date"] == "2026-04-02"
-    assert session.scalar(select(DailyMetric)) is not None
-    assert session.scalar(select(TrendFeature)) is not None
+    daily_metrics = session.scalars(select(DailyMetric).order_by(DailyMetric.date)).all()
+    trend_features = session.scalars(select(TrendFeature).order_by(TrendFeature.date)).all()
+    assert len(daily_metrics) == settings.historical_bootstrap_days + 1
+    assert len(trend_features) == settings.historical_bootstrap_days + 1
     assert session.scalar(select(AdviceHistory)) is not None
-    assert session.scalar(select(DriveIndex)) is not None
+    drive_index_rows = session.scalars(select(DriveIndex).order_by(DriveIndex.date)).all()
+    assert len(drive_index_rows) == settings.historical_bootstrap_days + 1
 
     json_path = (
         Path(settings.drive_local_root)
@@ -32,4 +35,15 @@ def test_daily_job_end_to_end(session: Session, settings: Settings) -> None:
     assert json_path.exists()
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["date"] == "2026-04-02"
+    assert payload["trends"]["sleep_vs_14d_avg"] == 0
     assert "line_message" in result
+
+    raw_path = (
+        Path(settings.drive_local_root)
+        / "HealthAgent"
+        / "raw"
+        / "2026"
+        / "2026-03"
+        / "2026-03-19_fitbit_raw.json"
+    )
+    assert raw_path.exists()

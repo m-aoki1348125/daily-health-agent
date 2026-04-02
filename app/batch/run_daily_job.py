@@ -18,6 +18,7 @@ from app.repositories.advice_repository import AdviceRepository
 from app.repositories.drive_index_repository import DriveIndexRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.services.feature_builder import FeatureBuilder
+from app.services.history_bootstrap_service import HistoryBootstrapService
 from app.services.notification_service import NotificationService
 from app.services.report_service import ReportService
 from app.services.rule_engine import RuleEngine
@@ -50,6 +51,17 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
     metrics_repo = MetricsRepository(session)
     advice_repo = AdviceRepository(session)
     drive_index_repo = DriveIndexRepository(session)
+    history_bootstrap_service = HistoryBootstrapService(
+        settings=settings,
+        fitbit_client=fitbit_client,
+        drive_client=drive_client,
+        metrics_repo=metrics_repo,
+        drive_index_repo=drive_index_repo,
+        feature_builder=feature_builder,
+        trend_analyzer=trend_analyzer,
+    )
+
+    history_bootstrap_service.bootstrap(target_date)
 
     raw = fitbit_client.fetch_day(target_date)
     raw_filename = f"{target_date.isoformat()}_fitbit_raw.json"
@@ -60,6 +72,7 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
     metrics = feature_builder.build_daily_metrics(raw, raw_drive_file_id=raw_file_id)
     metrics_repo.upsert_daily_metric(metrics, bedtime_start=metrics.bedtime_start)
     drive_index_repo.upsert_for_date(target_date, raw_file_id=raw_file_id)
+    metrics_repo.flush()
 
     history = metrics_repo.list_recent_daily_metrics(target_date, limit=90)
     trend_context = trend_analyzer.build(metrics, history)

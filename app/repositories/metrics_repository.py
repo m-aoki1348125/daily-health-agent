@@ -13,6 +13,9 @@ class MetricsRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def flush(self) -> None:
+        self.session.flush()
+
     def upsert_daily_metric(
         self,
         metric: DailyMetricInput,
@@ -52,6 +55,13 @@ class MetricsRepository:
             .limit(limit)
         )
         return list(self.session.scalars(stmt))
+
+    def list_metric_dates_in_range(self, start_date: date, end_date: date) -> set[date]:
+        stmt: Select[tuple[date]] = select(DailyMetric.date).where(
+            DailyMetric.date >= start_date,
+            DailyMetric.date <= end_date,
+        )
+        return set(self.session.scalars(stmt))
 
     def get_daily_metric(self, metric_date: date) -> DailyMetric | None:
         return self.session.get(DailyMetric, metric_date)

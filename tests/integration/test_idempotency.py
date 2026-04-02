@@ -14,7 +14,8 @@ def test_daily_job_is_idempotent(session: Session, settings: Settings) -> None:
     run(session, settings)
     session.commit()
 
-    assert session.scalar(select(func.count()).select_from(DailyMetric)) == 1
-    assert session.scalar(select(func.count()).select_from(TrendFeature)) == 1
+    expected_days = settings.historical_bootstrap_days + 1
+    assert session.scalar(select(func.count()).select_from(DailyMetric)) == expected_days
+    assert session.scalar(select(func.count()).select_from(TrendFeature)) == expected_days
     assert session.scalar(select(func.count()).select_from(AdviceHistory)) == 1
-    assert session.scalar(select(func.count()).select_from(DriveIndex)) == 1
+    assert session.scalar(select(func.count()).select_from(DriveIndex)) == expected_days

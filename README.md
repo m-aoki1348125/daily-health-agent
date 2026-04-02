@@ -21,6 +21,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康デ
 - ローカルでは `FITBIT_CLIENT_MODE=mock`、`GOOGLE_DRIVE_MODE=local`、`LINE_CLIENT_MODE=mock`、`LLM_PROVIDER=mock` を既定にしています。
 - Fitbit は refresh token から access token を毎実行時に取得して API を呼び出します。
 - Fitbit の refresh token はローテーションされるため、Cloud Run 実行時に取得した新しい token を Secret Manager に保存する前提です。
+- 初回 daily 実行時は、`HISTORICAL_BOOTSTRAP_DAYS` で指定した日数ぶんだけ不足している過去 Fitbit データを自動補完し、2週間待たずにトレンド比較へ使います。既定は 90 日です。
 - Google Drive は user OAuth refresh token を使って本人の Drive に保存します。Shared Drive がない個人 Google アカウントでも運用できます。
 - Cloud SQL は Terraform 上で PostgreSQL を作成し、ローカルでは SQLite で手早く検証します。
 
@@ -85,6 +86,8 @@ cp .env.example .env
 - `FITBIT_CLIENT_ID`
 - `FITBIT_CLIENT_SECRET`
 - `FITBIT_REFRESH_TOKEN`
+- `HISTORICAL_BOOTSTRAP_ENABLED`
+- `HISTORICAL_BOOTSTRAP_DAYS`
 - `GOOGLE_DRIVE_MODE`
 - `DRIVE_ROOT_FOLDER_ID`
 - `DRIVE_LOCAL_ROOT`
@@ -134,6 +137,7 @@ HEALTH_AGENT_DATE=2026-04-02 make run-daily
 
 実行すると以下が行われます。
 
+- 必要に応じて不足している過去 Fitbit データを最大 `HISTORICAL_BOOTSTRAP_DAYS` 日ぶん backfill
 - 前日 raw を `DRIVE_LOCAL_ROOT/HealthAgent/raw/...` に保存
 - `daily_report.json` と `daily_report.md` を `daily_reports/...` に保存
 - DB に `daily_metrics`, `trend_features`, `advice_history`, `drive_index` を upsert
@@ -254,6 +258,7 @@ Terraform は以下のスケジュールを作成します。
 ## 運用時の再実行方法
 
 同日再実行でも DB は primary key ベースで upsert され、Drive は同名ファイルを上書きし、重複登録を避けます。
+過去データ backfill も、既に存在する日付は再取得せず不足分だけを補完します。
 
 ローカル:
 
