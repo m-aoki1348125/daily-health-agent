@@ -61,6 +61,9 @@ def test_fitbit_api_client_refreshes_access_token(monkeypatch: pytest.MonkeyPatc
 
     transport = httpx.MockTransport(handler)
     client = FitbitApiClient(settings)
+    stored_refresh_tokens: list[str] = []
+
+    monkeypatch.setattr(client, "_store_refresh_token", stored_refresh_tokens.append)
     monkeypatch.setattr(
         client,
         "_build_client",
@@ -71,3 +74,49 @@ def test_fitbit_api_client_refreshes_access_token(monkeypatch: pytest.MonkeyPatc
     assert result.sleep.total_minutes == 420
     assert result.resting_hr == 55
     assert result.activity.steps == 1234
+    assert stored_refresh_tokens == []
+
+
+def test_fitbit_api_client_stores_rotated_refresh_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        fitbit_client_mode="api",
+        fitbit_client_id="client-id",
+        fitbit_client_secret="client-secret",
+        fitbit_refresh_token="refresh-token",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "fresh-access-token",
+                    "refresh_token": "rotated-refresh-token",
+                },
+            )
+        if request.url.path == "/1.2/user/-/sleep/date/2026-04-02.json":
+            return httpx.Response(
+                200,
+                json={"sleep": [{"minutesAsleep": 420, "levels": {"summary": {}}}]},
+            )
+        if request.url.path == "/1/user/-/activities/heart/date/2026-04-02/1d.json":
+            return httpx.Response(200, json={"activities-heart": []})
+        if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
+            return httpx.Response(200, json={"summary": {"steps": 1, "caloriesOut": 2}})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    client = FitbitApiClient(settings)
+    stored_refresh_tokens: list[str] = []
+
+    monkeypatch.setattr(client, "_store_refresh_token", stored_refresh_tokens.append)
+    monkeypatch.setattr(
+        client,
+        "_build_client",
+        lambda: httpx.Client(timeout=settings.request_timeout_seconds, transport=transport),
+    )
+
+    client.fetch_day(date(2026, 4, 2))
+
+    assert settings.fitbit_refresh_token == "rotated-refresh-token"
+    assert stored_refresh_tokens == ["rotated-refresh-token"]

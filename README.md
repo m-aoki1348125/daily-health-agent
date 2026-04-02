@@ -20,6 +20,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康デ
 - このワークスペースの実行環境は確認時点で `Python 3.9.6` だったため、ローカルの完全検証には 3.11 以上の導入が必要です。
 - ローカルでは `FITBIT_CLIENT_MODE=mock`、`GOOGLE_DRIVE_MODE=local`、`LINE_CLIENT_MODE=mock`、`LLM_PROVIDER=mock` を既定にしています。
 - Fitbit は refresh token から access token を毎実行時に取得して API を呼び出します。
+- Fitbit の refresh token はローテーションされるため、Cloud Run 実行時に取得した新しい token を Secret Manager に保存する前提です。
 - Cloud SQL は Terraform 上で PostgreSQL を作成し、ローカルでは SQLite で手早く検証します。
 
 ## アーキテクチャ

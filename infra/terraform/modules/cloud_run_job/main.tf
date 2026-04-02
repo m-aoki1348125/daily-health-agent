@@ -22,7 +22,7 @@ resource "google_cloud_run_v2_job" "job" {
     template {
       service_account = var.service_account_email
       timeout         = "${var.timeout_seconds}s"
-      max_retries     = 1
+      max_retries     = var.max_retries
 
       containers {
         image = var.image

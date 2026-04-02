@@ -18,3 +18,7 @@ variable "cloud_sql_instances" {
 variable "cpu" { type = string }
 variable "memory" { type = string }
 variable "timeout_seconds" { type = number }
+variable "max_retries" {
+  type    = number
+  default = 0
+}

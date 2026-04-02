@@ -52,6 +52,7 @@ resource "google_project_service" "services" {
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "drive.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
@@ -75,6 +76,7 @@ module "service_accounts" {
   job_roles = [
     "roles/logging.logWriter",
     "roles/secretmanager.secretAccessor",
+    "roles/secretmanager.secretVersionAdder",
     "roles/cloudsql.client",
   ]
   scheduler_roles = [
@@ -112,6 +114,7 @@ module "daily_job" {
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900
+  max_retries           = 0
 }
 
 module "weekly_job" {
@@ -128,6 +131,7 @@ module "weekly_job" {
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900
+  max_retries           = 0
 }
 
 module "monthly_job" {
@@ -144,6 +148,7 @@ module "monthly_job" {
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900
+  max_retries           = 0
 }
 
 data "google_project" "current" {

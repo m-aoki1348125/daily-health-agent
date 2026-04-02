@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Any
 
+import google.auth
 import httpx
+from google.cloud import secretmanager
 
 from app.config.settings import Settings
 from app.schemas.health_features import ActivitySummary, FitbitDayRaw, SleepSummary
@@ -42,6 +45,7 @@ class MockFitbitClient(FitbitClient):
 class FitbitApiClient(FitbitClient):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.logger = logging.getLogger(__name__)
 
     def _build_client(self) -> httpx.Client:
         return httpx.Client(timeout=self.settings.request_timeout_seconds)
@@ -141,7 +145,30 @@ class FitbitApiClient(FitbitClient):
         access_token = token_payload.get("access_token")
         if not access_token:
             raise ValueError("Fitbit token refresh response did not include access_token")
+        next_refresh_token = token_payload.get("refresh_token")
+        if isinstance(next_refresh_token, str) and next_refresh_token:
+            self.settings.fitbit_refresh_token = next_refresh_token
+            self._store_refresh_token(next_refresh_token)
         return str(access_token)
+
+    def _store_refresh_token(self, refresh_token: str) -> None:
+        try:
+            _, project_id = google.auth.default()
+            if not project_id:
+                self.logger.warning(
+                    "google auth did not provide project id for refresh token update"
+                )
+                return
+            client = secretmanager.SecretManagerServiceClient()
+            parent = f"projects/{project_id}/secrets/fitbit-refresh-token"
+            client.add_secret_version(
+                request={
+                    "parent": parent,
+                    "payload": {"data": refresh_token.encode("utf-8")},
+                }
+            )
+        except Exception:
+            self.logger.exception("failed to persist refreshed Fitbit token")
 
 
 def _sum_sleep_stage_minutes(summary: dict[str, Any], key: str) -> int:
