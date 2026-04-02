@@ -11,6 +11,9 @@ module "prod" {
   daily_schedule               = var.daily_schedule
   weekly_schedule              = var.weekly_schedule
   monthly_schedule             = var.monthly_schedule
+  line_user_id                 = var.line_user_id
+  llm_provider                 = var.llm_provider
+  llm_model_name               = var.llm_model_name
   private_network              = var.private_network
   db_password                  = var.db_password
 }

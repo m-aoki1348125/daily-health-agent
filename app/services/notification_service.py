@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from app.clients.line_client import LineClient
 from app.config.settings import Settings
 from app.schemas.report_schema import DailyReport
@@ -9,6 +11,7 @@ class NotificationService:
     def __init__(self, line_client: LineClient, settings: Settings) -> None:
         self.line_client = line_client
         self.settings = settings
+        self.logger = logging.getLogger(__name__)
 
     def build_message(self, report: DailyReport) -> str:
         trends = report.trends
@@ -38,5 +41,8 @@ class NotificationService:
 
     def send(self, report: DailyReport) -> str:
         message = self.build_message(report)
-        self.line_client.push_message(self.settings.line_user_id, message)
+        try:
+            self.line_client.push_message(self.settings.line_user_id, message)
+        except Exception:
+            self.logger.exception("line notification failed")
         return message

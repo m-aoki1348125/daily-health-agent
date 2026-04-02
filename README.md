@@ -19,7 +19,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康デ
 - Python 3.11 以上を前提に実装しています。
 - このワークスペースの実行環境は確認時点で `Python 3.9.6` だったため、ローカルの完全検証には 3.11 以上の導入が必要です。
 - ローカルでは `FITBIT_CLIENT_MODE=mock`、`GOOGLE_DRIVE_MODE=local`、`LINE_CLIENT_MODE=mock`、`LLM_PROVIDER=mock` を既定にしています。
-- Fitbit の OAuth refresh token 更新は本番接続で追加実装しやすいよう interface を切っており、MVP では bearer token として設定値を使う最小実装です。
+- Fitbit は refresh token から access token を毎実行時に取得して API を呼び出します。
 - Cloud SQL は Terraform 上で PostgreSQL を作成し、ローカルでは SQLite で手早く検証します。
 
 ## アーキテクチャ
@@ -209,6 +209,12 @@ printf '%s' 'your-line-token' | gcloud secrets versions add line-channel-access-
 printf '%s' 'your-db-password' | gcloud secrets versions add db-password --data-file=-
 printf '%s' 'your-drive-root-folder-id' | gcloud secrets versions add drive-root-folder-id --data-file=-
 ```
+
+Cloud Run Job 側では secret 以外に以下の plain env も設定します。
+
+- `LINE_USER_ID`
+- `LLM_PROVIDER`
+- `LLM_MODEL_NAME`
 
 ## Cloud Run Jobs へのデプロイ方法
 

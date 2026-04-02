@@ -26,23 +26,24 @@ locals {
     "drive-root-folder-id",
   ]
   plain_env = {
-    APP_ENV             = var.environment
-    TIMEZONE            = var.timezone
-    FITBIT_CLIENT_MODE  = "api"
-    GOOGLE_DRIVE_MODE   = "api"
-    LINE_CLIENT_MODE    = "api"
-    LLM_PROVIDER        = "openai"
-    LLM_MODEL_NAME      = "gpt-4.1-mini"
-    DATABASE_URL        = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
+    APP_ENV            = var.environment
+    TIMEZONE           = var.timezone
+    FITBIT_CLIENT_MODE = "api"
+    GOOGLE_DRIVE_MODE  = "api"
+    LINE_CLIENT_MODE   = "api"
+    LINE_USER_ID       = var.line_user_id
+    LLM_PROVIDER       = var.llm_provider
+    LLM_MODEL_NAME     = var.llm_model_name
+    DATABASE_URL       = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
   }
   secret_env = {
-    FITBIT_CLIENT_ID = { secret = "fitbit-client-id", version = "latest" }
-    FITBIT_CLIENT_SECRET = { secret = "fitbit-client-secret", version = "latest" }
-    FITBIT_REFRESH_TOKEN = { secret = "fitbit-refresh-token", version = "latest" }
-    OPENAI_API_KEY = { secret = "openai-api-key", version = "latest" }
-    CLAUDE_API_KEY = { secret = "claude-api-key", version = "latest" }
+    FITBIT_CLIENT_ID          = { secret = "fitbit-client-id", version = "latest" }
+    FITBIT_CLIENT_SECRET      = { secret = "fitbit-client-secret", version = "latest" }
+    FITBIT_REFRESH_TOKEN      = { secret = "fitbit-refresh-token", version = "latest" }
+    OPENAI_API_KEY            = { secret = "openai-api-key", version = "latest" }
+    CLAUDE_API_KEY            = { secret = "claude-api-key", version = "latest" }
     LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
-    DRIVE_ROOT_FOLDER_ID = { secret = "drive-root-folder-id", version = "latest" }
+    DRIVE_ROOT_FOLDER_ID      = { secret = "drive-root-folder-id", version = "latest" }
   }
 }
 

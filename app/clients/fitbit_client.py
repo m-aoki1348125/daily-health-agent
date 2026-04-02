@@ -43,6 +43,9 @@ class FitbitApiClient(FitbitClient):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
+    def _build_client(self) -> httpx.Client:
+        return httpx.Client(timeout=self.settings.request_timeout_seconds)
+
     def fetch_day(self, target_date: date) -> FitbitDayRaw:
         if not all(
             [
@@ -52,9 +55,7 @@ class FitbitApiClient(FitbitClient):
             ]
         ):
             raise ValueError("Fitbit API mode requires client id, client secret, and refresh token")
-        # Minimal live-capable implementation for MVP.
-        # Token refresh is documented in README and can be expanded later.
-        token = self.settings.fitbit_refresh_token
+        token = self._refresh_access_token()
         headers = {"Authorization": f"Bearer {token}"}
         sleep_url = (
             f"{self.settings.fitbit_base_url}/1.2/user/-/sleep/date/{target_date.isoformat()}.json"
@@ -67,7 +68,7 @@ class FitbitApiClient(FitbitClient):
             f"{self.settings.fitbit_base_url}/1/user/-/activities/date/"
             f"{target_date.isoformat()}.json"
         )
-        with httpx.Client(timeout=self.settings.request_timeout_seconds) as client:
+        with self._build_client() as client:
             sleep_resp = client.get(sleep_url, headers=headers)
             sleep_resp.raise_for_status()
             hr_resp = client.get(hr_url, headers=headers)
@@ -115,6 +116,32 @@ class FitbitApiClient(FitbitClient):
             ),
             raw_payload=raw_payload,
         )
+
+    def _refresh_access_token(self) -> str:
+        client_id = self.settings.fitbit_client_id
+        client_secret = self.settings.fitbit_client_secret
+        refresh_token = self.settings.fitbit_refresh_token
+        if not client_id or not client_secret or not refresh_token:
+            raise ValueError("Fitbit credentials are not fully configured")
+        token_url = f"{self.settings.fitbit_base_url}/oauth2/token"
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+        }
+        with self._build_client() as client:
+            response = client.post(
+                token_url,
+                data=payload,
+                auth=(client_id, client_secret),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+        token_payload = response.json()
+        access_token = token_payload.get("access_token")
+        if not access_token:
+            raise ValueError("Fitbit token refresh response did not include access_token")
+        return str(access_token)
 
 
 def _sum_sleep_stage_minutes(summary: dict[str, Any], key: str) -> int:
