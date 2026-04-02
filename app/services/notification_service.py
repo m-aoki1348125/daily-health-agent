@@ -25,7 +25,7 @@ class NotificationService:
         )
         condition_text = self._build_condition_text(report.rule_evaluation.risk_level)
         resting_hr_text = self._build_resting_hr_text(report)
-        fact_bullets = self._build_fact_bullets(report)
+        body_condition_lines = self._build_body_condition_lines(report)
         today_actions = "\n".join(f"- {item}" for item in advice.today_actions[:3])
         if not today_actions:
             today_actions = "- 生活リズムを整えながら様子を見てください"
@@ -44,8 +44,8 @@ class NotificationService:
             f"（14日平均より {sleep_delta}）\n"
             f"安静時心拍: {resting_hr_text}\n"
             f"前日歩数: {report.metrics.steps:,}歩\n\n"
-            f"昨日の健康データ\n{fact_bullets}\n\n"
-            f"今日のおすすめ\n{today_actions}\n\n"
+            f"今日の体調\n{body_condition_lines}\n\n"
+            f"今日のアドバイス\n{today_actions}\n\n"
             f"中長期の分析\n{long_term_lines}\n\n"
             "詳細レポートは Drive に保存済みです"
         )
@@ -61,25 +61,62 @@ class NotificationService:
             return "🔴 Red"
         return risk_level.title()
 
+    def _build_body_condition_lines(self, report: DailyReport) -> str:
+        findings = [self._normalize_condition_line(item) for item in report.advice.key_findings[:4]]
+        findings = [item for item in findings if item]
+        if findings:
+            return "\n".join(findings)
+        return "\n".join(self._build_fallback_condition_lines(report))
+
     @staticmethod
-    def _build_fact_bullets(report: DailyReport) -> str:
+    def _normalize_condition_line(item: str) -> str:
+        text = item.strip()
+        if not text:
+            return ""
+        if text.startswith(("☀️", "⛅", "🌧️")):
+            return f"- {text}"
+        return f"- ⛅ {text}"
+
+    @staticmethod
+    def _build_fallback_condition_lines(report: DailyReport) -> list[str]:
         metrics = report.metrics
         trends = report.trends
-        sleep_hours = metrics.sleep_minutes // 60
-        sleep_minutes = metrics.sleep_minutes % 60
-        if trends.sleep_vs_14d_avg is None:
-            sleep_delta_text = "14日平均との差分は未算出"
-        else:
-            sleep_delta_text = f"14日平均より {trends.sleep_vs_14d_avg:+.0f}分"
+        sleep_icon = "☀️"
+        sleep_text = "睡眠の回復感は安定しています"
+        if trends.sleep_vs_14d_avg is not None and trends.sleep_vs_14d_avg < -30:
+            sleep_icon = "🌧️"
+            sleep_text = "睡眠量が直近平均より少なく、疲れが残りやすい状態です"
+        elif trends.sleep_vs_14d_avg is not None and trends.sleep_vs_14d_avg < 30:
+            sleep_icon = "⛅"
+            sleep_text = "睡眠はおおむね平常ですが、回復余地が少しあります"
 
-        resting_hr_text = NotificationService._build_resting_hr_text(report)
-        return "\n".join(
-            [
-                f"- 睡眠時間: {sleep_hours}時間{sleep_minutes:02d}分（{sleep_delta_text}）",
-                f"- 安静時心拍: {resting_hr_text}",
-                f"- 前日歩数: {metrics.steps:,}歩",
-            ]
-        )
+        hr_icon = "⛅"
+        hr_text = "安静時心拍は比較データを蓄積中です"
+        if metrics.resting_hr is not None and trends.resting_hr_vs_30d_avg is not None:
+            if trends.resting_hr_vs_30d_avg <= -1:
+                hr_icon = "☀️"
+                hr_text = "安静時心拍は落ち着いていて回復傾向です"
+            elif trends.resting_hr_vs_30d_avg >= 3:
+                hr_icon = "🌧️"
+                hr_text = "安静時心拍がやや高めで負荷が残っている可能性があります"
+            else:
+                hr_icon = "⛅"
+                hr_text = "安静時心拍は大きな乱れなく推移しています"
+
+        activity_icon = "⛅"
+        activity_text = "活動量は通常範囲です"
+        if metrics.steps >= 8000:
+            activity_icon = "☀️"
+            activity_text = "活動量はしっかり確保できています"
+        elif metrics.steps < 4000:
+            activity_icon = "🌧️"
+            activity_text = "活動量は少なめなので、軽い歩行で整えたい日です"
+
+        return [
+            f"- {sleep_icon} 睡眠回復: {sleep_text}",
+            f"- {hr_icon} 心拍コンディション: {hr_text}",
+            f"- {activity_icon} 活動リズム: {activity_text}",
+        ]
 
     @staticmethod
     def _build_resting_hr_text(report: DailyReport) -> str:

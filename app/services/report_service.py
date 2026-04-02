@@ -36,7 +36,29 @@ class ReportService:
             return AdviceResult(
                 risk_level=rule_eval.risk_level,
                 summary="ルールベース判定に基づくサマリーを生成しました。",
-                key_findings=rule_eval.reasons or ["rule-based fallback"],
+                key_findings=[
+                    *(
+                        ["🌧️ 睡眠回復: 直近の睡眠不足が続いています"]
+                        if trend_context.current.sleep_debt_streak_days >= 3
+                        else []
+                    ),
+                    *(
+                        ["☀️ 睡眠回復: 睡眠はしっかり確保できています"]
+                        if metrics.sleep_minutes >= 420
+                        else ["⛅ 睡眠回復: 睡眠は大きく崩れていません"]
+                    ),
+                    *(
+                        ["☀️ 心拍コンディション: 安静時心拍は落ち着いています"]
+                        if trend_context.current.resting_hr_vs_30d_avg is not None
+                        and trend_context.current.resting_hr_vs_30d_avg <= 0
+                        else ["⛅ 心拍コンディション: 心拍の比較データを蓄積中です"]
+                    ),
+                    *(
+                        ["☀️ 活動リズム: 無理のない範囲で活動できています"]
+                        if metrics.steps >= 6000
+                        else ["⛅ 活動リズム: 軽い歩行で体を整えたい日です"]
+                    ),
+                ][:4],
                 today_actions=[
                     "午前は体調確認を優先する",
                     "水分補給を意識する",

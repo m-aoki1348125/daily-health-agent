@@ -46,7 +46,11 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
         advice=AdviceResult(
             risk_level="green",
             summary="前日の睡眠と心拍の事実をもとに落ち着いて整える日です。",
-            key_findings=["睡眠は14日平均より15分短い", "安静時心拍は30日平均より2 bpm高い"],
+            key_findings=[
+                "☀️ 睡眠回復: 睡眠量は十分で回復感があります",
+                "⛅ 心拍コンディション: 心拍は安定していますが少し慎重に見たいです",
+                "☀️ 活動リズム: 日中の動きは良い流れです",
+            ],
             today_actions=[
                 "午前は無理に負荷を上げない",
                 "昼前に軽く歩く",
@@ -69,11 +73,11 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
     message = service.build_message(report)
 
     assert "コンディション: 🟢 Green" in message
-    assert "昨日の健康データ" in message
+    assert "今日の体調" in message
+    assert "今日のアドバイス" in message
     assert "中長期の分析" in message
-    assert "- 睡眠時間: 7時間25分（14日平均より -15分）" in message
-    assert "- 安静時心拍: 58 bpm（30日平均より +2 bpm）" in message
-    assert "- 前日歩数: 5,257歩" in message
+    assert "- ☀️ 睡眠回復: 睡眠量は十分で回復感があります" in message
+    assert "- ⛅ 心拍コンディション: 心拍は安定していますが少し慎重に見たいです" in message
     assert "- 平日は睡眠がやや短い" in message
     assert "- 平日の就寝が少し遅れる傾向があるため固定化が有効です。" in message
     assert "安静時心拍: 58 bpm（30日平均より +2 bpm）" in message
@@ -122,3 +126,4 @@ def test_notification_message_shows_current_resting_hr_even_without_delta() -> N
     message = service.build_message(report)
 
     assert "安静時心拍: 58 bpm（30日平均との差分は未算出）" in message
+    assert "- ⛅ 睡眠は確保できています" in message
