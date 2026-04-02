@@ -73,3 +73,49 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
     assert "- 睡眠は14日平均より15分短い" in message
     assert "- 平日は睡眠がやや短い" in message
     assert "- 平日の就寝が少し遅れる傾向があるため固定化が有効です。" in message
+    assert "安静時心拍: 58 bpm（30日平均より +2 bpm）" in message
+
+
+def test_notification_message_shows_current_resting_hr_even_without_delta() -> None:
+    service = NotificationService(DummyLineClient(), Settings())
+    report = DailyReport(
+        date=date(2026, 4, 1),
+        generated_at=datetime.now(UTC),
+        metrics=DailyMetricInput(
+            date=date(2026, 4, 1),
+            sleep_minutes=445,
+            sleep_efficiency=89,
+            deep_sleep_minutes=70,
+            rem_sleep_minutes=90,
+            awakenings=2,
+            resting_hr=58,
+            steps=5257,
+            calories=2100,
+        ),
+        trends=TrendFeatureInput(
+            date=date(2026, 4, 1),
+            sleep_vs_14d_avg=None,
+            resting_hr_vs_30d_avg=None,
+            sleep_debt_streak_days=0,
+            bedtime_drift_minutes=None,
+            recovery_score=80,
+        ),
+        rule_evaluation=RuleEvaluation(risk_level="green", reasons=[]),
+        advice=AdviceResult(
+            risk_level="green",
+            summary="前日のデータを短くまとめます。",
+            key_findings=["睡眠は確保できています"],
+            today_actions=["いつもどおりの生活リズムを維持する"],
+            exercise_advice="軽い運動を継続してください。",
+            sleep_advice="今夜も睡眠を確保してください。",
+            caffeine_advice="午後は控えめにしてください。",
+            medical_note="不調が続けば相談してください。",
+            long_term_comment="長期傾向は今後の蓄積で詳しく見られます。",
+            provider="claude",
+            model_name="claude-haiku-4-5",
+        ),
+    )
+
+    message = service.build_message(report)
+
+    assert "安静時心拍: 58 bpm（30日平均との差分は未算出）" in message

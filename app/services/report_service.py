@@ -20,6 +20,7 @@ class ReportService:
         payload: dict[str, Any] = {
             "date": metrics.date.isoformat(),
             "sleep_minutes": metrics.sleep_minutes,
+            "resting_hr": metrics.resting_hr,
             "sleep_vs_14d_avg": trend_context.current.sleep_vs_14d_avg,
             "resting_hr_vs_30d_avg": trend_context.current.resting_hr_vs_30d_avg,
             "steps_yesterday": metrics.steps,
