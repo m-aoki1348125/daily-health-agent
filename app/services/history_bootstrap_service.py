@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
+import httpx
+
 from app.clients.drive_client import DriveClient
 from app.clients.fitbit_client import FitbitClient
 from app.config.settings import Settings
@@ -46,20 +48,40 @@ class HistoryBootstrapService:
             return []
 
         existing_dates = self.metrics_repo.list_metric_dates_in_range(start_date, end_date)
+        candidate_dates = [
+            start_date + timedelta(days=offset)
+            for offset in range((end_date - start_date).days + 1)
+        ]
+        missing_dates = [
+            candidate_date
+            for candidate_date in reversed(candidate_dates)
+            if candidate_date not in existing_dates
+        ]
+        missing_dates = missing_dates[: self.settings.historical_bootstrap_max_days_per_run]
         bootstrapped_dates: list[date] = []
-        current_date = start_date
-        while current_date <= end_date:
-            if current_date not in existing_dates:
+        for current_date in missing_dates:
+            try:
                 self._bootstrap_day(current_date)
-                bootstrapped_dates.append(current_date)
-            current_date += timedelta(days=1)
+            except httpx.HTTPStatusError as exc:
+                if self._is_retryable_http_error(exc):
+                    self.logger.warning(
+                        "historical bootstrap stopped after upstream rate limit",
+                        extra={
+                            "date": current_date.isoformat(),
+                            "status_code": exc.response.status_code,
+                            "bootstrapped_count": len(bootstrapped_dates),
+                        },
+                    )
+                    break
+                raise
+            bootstrapped_dates.append(current_date)
         if bootstrapped_dates:
             self.logger.info(
                 "bootstrapped historical Fitbit days",
                 extra={
                     "count": len(bootstrapped_dates),
-                    "from": bootstrapped_dates[0].isoformat(),
-                    "to": bootstrapped_dates[-1].isoformat(),
+                    "from": min(bootstrapped_dates).isoformat(),
+                    "to": max(bootstrapped_dates).isoformat(),
                 },
             )
         return bootstrapped_dates
@@ -82,3 +104,8 @@ class HistoryBootstrapService:
         )
         trend_context = self.trend_analyzer.build(metrics, history)
         self.metrics_repo.upsert_trend_feature(trend_context.current)
+
+    @staticmethod
+    def _is_retryable_http_error(exc: httpx.HTTPStatusError) -> bool:
+        status_code = exc.response.status_code
+        return status_code == 429 or 500 <= status_code < 600

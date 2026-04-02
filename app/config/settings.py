@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     fitbit_refresh_token: str | None = None
     historical_bootstrap_enabled: bool = True
     historical_bootstrap_days: int = Field(default=90, ge=0, le=365)
+    historical_bootstrap_max_days_per_run: int = Field(default=14, ge=1, le=365)
 
     google_drive_mode: Literal["local", "api"] = "local"
     drive_root_folder_id: str = "HealthAgent"

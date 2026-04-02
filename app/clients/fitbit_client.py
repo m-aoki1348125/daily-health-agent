@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Any
@@ -46,6 +47,8 @@ class FitbitApiClient(FitbitClient):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.logger = logging.getLogger(__name__)
+        self._access_token: str | None = None
+        self._access_token_expires_at: float = 0.0
 
     def _build_client(self) -> httpx.Client:
         return httpx.Client(timeout=self.settings.request_timeout_seconds)
@@ -59,7 +62,7 @@ class FitbitApiClient(FitbitClient):
             ]
         ):
             raise ValueError("Fitbit API mode requires client id, client secret, and refresh token")
-        token = self._refresh_access_token()
+        token = self._get_access_token()
         headers = {"Authorization": f"Bearer {token}"}
         sleep_url = (
             f"{self.settings.fitbit_base_url}/1.2/user/-/sleep/date/{target_date.isoformat()}.json"
@@ -73,12 +76,9 @@ class FitbitApiClient(FitbitClient):
             f"{target_date.isoformat()}.json"
         )
         with self._build_client() as client:
-            sleep_resp = client.get(sleep_url, headers=headers)
-            sleep_resp.raise_for_status()
-            hr_resp = client.get(hr_url, headers=headers)
-            hr_resp.raise_for_status()
-            activity_resp = client.get(activity_url, headers=headers)
-            activity_resp.raise_for_status()
+            sleep_resp = self._send_with_retry(client, "GET", sleep_url, headers=headers)
+            hr_resp = self._send_with_retry(client, "GET", hr_url, headers=headers)
+            activity_resp = self._send_with_retry(client, "GET", activity_url, headers=headers)
         sleep_json = sleep_resp.json()
         hr_json = hr_resp.json()
         activity_json = activity_resp.json()
@@ -121,6 +121,11 @@ class FitbitApiClient(FitbitClient):
             raw_payload=raw_payload,
         )
 
+    def _get_access_token(self) -> str:
+        if self._access_token and time.monotonic() < self._access_token_expires_at:
+            return self._access_token
+        return self._refresh_access_token()
+
     def _refresh_access_token(self) -> str:
         client_id = self.settings.fitbit_client_id
         client_secret = self.settings.fitbit_client_secret
@@ -145,11 +150,53 @@ class FitbitApiClient(FitbitClient):
         access_token = token_payload.get("access_token")
         if not access_token:
             raise ValueError("Fitbit token refresh response did not include access_token")
+        expires_in = int(token_payload.get("expires_in", 3600))
+        self._access_token = str(access_token)
+        self._access_token_expires_at = time.monotonic() + max(0, expires_in - 60)
         next_refresh_token = token_payload.get("refresh_token")
         if isinstance(next_refresh_token, str) and next_refresh_token:
             self.settings.fitbit_refresh_token = next_refresh_token
             self._store_refresh_token(next_refresh_token)
-        return str(access_token)
+        return self._access_token
+
+    def _send_with_retry(
+        self,
+        client: httpx.Client,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        max_attempts: int = 3,
+    ) -> httpx.Response:
+        response: httpx.Response | None = None
+        for attempt in range(1, max_attempts + 1):
+            response = client.request(method, url, headers=headers)
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response
+
+            if attempt == max_attempts:
+                response.raise_for_status()
+
+            retry_after = self._parse_retry_after_seconds(response)
+            self.logger.warning(
+                "fitbit rate limited request",
+                extra={"url": url, "attempt": attempt, "retry_after_seconds": retry_after},
+            )
+            time.sleep(retry_after)
+
+        assert response is not None
+        return response
+
+    @staticmethod
+    def _parse_retry_after_seconds(response: httpx.Response) -> float:
+        header_value = response.headers.get("Retry-After")
+        if not header_value:
+            return 2.0
+        try:
+            return max(1.0, float(header_value))
+        except ValueError:
+            return 2.0
 
     def _store_refresh_token(self, refresh_token: str) -> None:
         try:
