@@ -53,6 +53,24 @@ resource "google_cloud_run_v2_job" "job" {
             memory = var.memory
           }
         }
+
+        dynamic "volume_mounts" {
+          for_each = length(var.cloud_sql_instances) > 0 ? [1] : []
+          content {
+            name       = "cloudsql"
+            mount_path = "/cloudsql"
+          }
+        }
+      }
+
+      dynamic "volumes" {
+        for_each = length(var.cloud_sql_instances) > 0 ? [1] : []
+        content {
+          name = "cloudsql"
+          cloud_sql_instance {
+            instances = var.cloud_sql_instances
+          }
+        }
       }
     }
   }

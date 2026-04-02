@@ -11,6 +11,10 @@ variable "secret_env" {
     version = string
   }))
 }
+variable "cloud_sql_instances" {
+  type    = list(string)
+  default = []
+}
 variable "cpu" { type = string }
 variable "memory" { type = string }
 variable "timeout_seconds" { type = number }

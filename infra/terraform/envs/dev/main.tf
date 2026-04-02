@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.5.0"
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -75,7 +75,6 @@ module "service_accounts" {
     "roles/logging.logWriter",
     "roles/secretmanager.secretAccessor",
     "roles/cloudsql.client",
-    "roles/drive.admin",
   ]
   scheduler_roles = [
     "roles/run.invoker",
@@ -108,6 +107,7 @@ module "daily_job" {
   args                  = ["-m", "app.batch.run_daily_job"]
   plain_env             = local.plain_env
   secret_env            = local.secret_env
+  cloud_sql_instances   = [module.cloud_sql.instance_connection_name]
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900
@@ -123,6 +123,7 @@ module "weekly_job" {
   args                  = ["-m", "app.batch.run_weekly_job"]
   plain_env             = local.plain_env
   secret_env            = local.secret_env
+  cloud_sql_instances   = [module.cloud_sql.instance_connection_name]
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900
@@ -138,6 +139,7 @@ module "monthly_job" {
   args                  = ["-m", "app.batch.run_monthly_job"]
   plain_env             = local.plain_env
   secret_env            = local.secret_env
+  cloud_sql_instances   = [module.cloud_sql.instance_connection_name]
   cpu                   = "1"
   memory                = "512Mi"
   timeout_seconds       = 900

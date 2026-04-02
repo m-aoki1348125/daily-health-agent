@@ -12,3 +12,13 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+infra/terraform/envs/dev/.terraform/
+infra/terraform/envs/dev/.terraform.lock.hcl
+infra/terraform/envs/dev/terraform.tfstate
+infra/terraform/envs/dev/terraform.tfstate.backup
+infra/terraform/envs/dev/terraform.tfvars
+infra/terraform/envs/prod/.terraform/
+infra/terraform/envs/prod/.terraform.lock.hcl
+infra/terraform/envs/prod/terraform.tfstate
+infra/terraform/envs/prod/terraform.tfstate.backup
+infra/terraform/envs/prod/terraform.tfvars

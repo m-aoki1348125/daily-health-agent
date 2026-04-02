@@ -9,8 +9,7 @@ resource "google_sql_database_instance" "postgres" {
       enabled = true
     }
     ip_configuration {
-      ipv4_enabled    = false
-      private_network = var.private_network
+      ipv4_enabled = true
     }
   }
 
