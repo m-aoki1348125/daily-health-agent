@@ -10,6 +10,9 @@ PROJECT_ID="${PROJECT_ID:-daily-health-agent}"
 : "${LINE_CHANNEL_ACCESS_TOKEN:?Set LINE_CHANNEL_ACCESS_TOKEN}"
 : "${DB_PASSWORD:?Set DB_PASSWORD}"
 : "${DRIVE_ROOT_FOLDER_ID:?Set DRIVE_ROOT_FOLDER_ID}"
+: "${DRIVE_OAUTH_CLIENT_ID:?Set DRIVE_OAUTH_CLIENT_ID}"
+: "${DRIVE_OAUTH_CLIENT_SECRET:?Set DRIVE_OAUTH_CLIENT_SECRET}"
+: "${DRIVE_OAUTH_REFRESH_TOKEN:?Set DRIVE_OAUTH_REFRESH_TOKEN}"
 
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 CLAUDE_API_KEY="${CLAUDE_API_KEY:-}"
@@ -38,6 +41,12 @@ printf '%s' "${LINE_CHANNEL_ACCESS_TOKEN}" | gcloud secrets versions add line-ch
 printf '%s' "${DB_PASSWORD}" | gcloud secrets versions add db-password \
   --data-file=- --project "${PROJECT_ID}"
 printf '%s' "${DRIVE_ROOT_FOLDER_ID}" | gcloud secrets versions add drive-root-folder-id \
+  --data-file=- --project "${PROJECT_ID}"
+printf '%s' "${DRIVE_OAUTH_CLIENT_ID}" | gcloud secrets versions add drive-oauth-client-id \
+  --data-file=- --project "${PROJECT_ID}"
+printf '%s' "${DRIVE_OAUTH_CLIENT_SECRET}" | gcloud secrets versions add drive-oauth-client-secret \
+  --data-file=- --project "${PROJECT_ID}"
+printf '%s' "${DRIVE_OAUTH_REFRESH_TOKEN}" | gcloud secrets versions add drive-oauth-refresh-token \
   --data-file=- --project "${PROJECT_ID}"
 
 echo "Secret versions updated in project ${PROJECT_ID}."

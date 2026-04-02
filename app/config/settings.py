@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     google_drive_mode: Literal["local", "api"] = "local"
     drive_root_folder_id: str = "HealthAgent"
     drive_local_root: str = ".local_drive"
+    drive_oauth_client_id: str | None = None
+    drive_oauth_client_secret: str | None = None
+    drive_oauth_refresh_token: str | None = None
+    drive_oauth_token_uri: str = "https://oauth2.googleapis.com/token"
 
     line_client_mode: Literal["mock", "api"] = "mock"
     line_channel_access_token: str | None = None

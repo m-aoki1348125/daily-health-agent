@@ -24,6 +24,9 @@ locals {
     "line-channel-access-token",
     "db-password",
     "drive-root-folder-id",
+    "drive-oauth-client-id",
+    "drive-oauth-client-secret",
+    "drive-oauth-refresh-token",
   ]
   plain_env = {
     APP_ENV            = var.environment
@@ -44,6 +47,9 @@ locals {
     CLAUDE_API_KEY            = { secret = "claude-api-key", version = "latest" }
     LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
     DRIVE_ROOT_FOLDER_ID      = { secret = "drive-root-folder-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_ID     = { secret = "drive-oauth-client-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_SECRET = { secret = "drive-oauth-client-secret", version = "latest" }
+    DRIVE_OAUTH_REFRESH_TOKEN = { secret = "drive-oauth-refresh-token", version = "latest" }
   }
 }
 

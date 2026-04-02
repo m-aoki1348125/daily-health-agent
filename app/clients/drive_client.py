@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from abc import ABC, abstractmethod
 from datetime import date
 from pathlib import Path
+from typing import Any
+
+import google.auth
+from google.cloud import secretmanager
 
 from app.config.settings import Settings
+
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 
 class DriveClient(ABC):
@@ -17,7 +24,7 @@ class DriveClient(ABC):
         category: str,
         target_date: date,
         filename: str,
-        payload: dict,
+        payload: dict[str, Any],
     ) -> str:
         raise NotImplementedError
 
@@ -43,7 +50,7 @@ class LocalDriveClient(DriveClient):
         category: str,
         target_date: date,
         filename: str,
-        payload: dict,
+        payload: dict[str, Any],
     ) -> str:
         path = self._path(category, target_date, filename)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,10 +92,11 @@ class LocalDriveClient(DriveClient):
 
 class GoogleDriveClient(DriveClient):
     def __init__(self, settings: Settings) -> None:
-        from googleapiclient.discovery import build  # type: ignore[import-untyped]
-
+        self.settings = settings
+        self.logger = logging.getLogger(__name__)
         self.root_folder_id = settings.drive_root_folder_id
-        self.service = build("drive", "v3", cache_discovery=False)
+        self.credentials = self._build_credentials()
+        self.service = self._build_service()
 
     def store_json(
         self,
@@ -96,7 +104,7 @@ class GoogleDriveClient(DriveClient):
         category: str,
         target_date: date,
         filename: str,
-        payload: dict,
+        payload: dict[str, Any],
     ) -> str:
         parent_id = self._ensure_folder_path(category, target_date)
         return self._upsert_file(
@@ -122,6 +130,43 @@ class GoogleDriveClient(DriveClient):
             mime_type="text/markdown",
         )
 
+    def _build_credentials(self) -> Any:
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+
+        if not all(
+            [
+                self.settings.drive_oauth_client_id,
+                self.settings.drive_oauth_client_secret,
+                self.settings.drive_oauth_refresh_token,
+            ]
+        ):
+            raise ValueError(
+                "Google Drive API mode requires drive OAuth client id, "
+                "client secret, and refresh token"
+            )
+        credentials = Credentials(
+            token=None,
+            refresh_token=self.settings.drive_oauth_refresh_token,
+            token_uri=self.settings.drive_oauth_token_uri,
+            client_id=self.settings.drive_oauth_client_id,
+            client_secret=self.settings.drive_oauth_client_secret,
+            scopes=[DRIVE_SCOPE],
+        )
+        credentials.refresh(Request())
+        if (
+            credentials.refresh_token
+            and credentials.refresh_token != self.settings.drive_oauth_refresh_token
+        ):
+            self.settings.drive_oauth_refresh_token = credentials.refresh_token
+            self._store_secret("drive-oauth-refresh-token", credentials.refresh_token)
+        return credentials
+
+    def _build_service(self) -> Any:
+        from googleapiclient.discovery import build  # type: ignore[import-untyped]
+
+        return build("drive", "v3", credentials=self.credentials, cache_discovery=False)
+
     def _ensure_folder_path(self, category: str, target_date: date) -> str:
         parts = ["HealthAgent", category]
         if category in {"raw", "daily_reports"}:
@@ -138,35 +183,85 @@ class GoogleDriveClient(DriveClient):
             f"name = '{name}' and '{parent_id}' in parents and "
             "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         )
-        response = self.service.files().list(q=query, fields="files(id, name)").execute()
+        response = (
+            self.service.files()
+            .list(
+                q=query,
+                fields="files(id, name)",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
         files = response.get("files", [])
         if files:
             return str(files[0]["id"])
-        file_metadata = {
-            "name": name,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [parent_id],
-        }
-        created = self.service.files().create(body=file_metadata, fields="id").execute()
+        created = (
+            self.service.files()
+            .create(
+                body={
+                    "name": name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [parent_id],
+                },
+                fields="id",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
         return str(created["id"])
 
     def _upsert_file(self, *, parent_id: str, filename: str, content: bytes, mime_type: str) -> str:
         from googleapiclient.http import MediaInMemoryUpload  # type: ignore[import-untyped]
 
         query = f"name = '{filename}' and '{parent_id}' in parents and trashed = false"
-        response = self.service.files().list(q=query, fields="files(id)").execute()
+        response = (
+            self.service.files()
+            .list(
+                q=query,
+                fields="files(id)",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
         media = MediaInMemoryUpload(content, mimetype=mime_type, resumable=False)
         files = response.get("files", [])
         if files:
             file_id = str(files[0]["id"])
-            self.service.files().update(fileId=file_id, media_body=media).execute()
+            (
+                self.service.files()
+                .update(fileId=file_id, media_body=media, supportsAllDrives=True)
+                .execute()
+            )
             return file_id
         created = (
             self.service.files()
-            .create(body={"name": filename, "parents": [parent_id]}, media_body=media, fields="id")
+            .create(
+                body={"name": filename, "parents": [parent_id]},
+                media_body=media,
+                fields="id",
+                supportsAllDrives=True,
+            )
             .execute()
         )
         return str(created["id"])
+
+    def _store_secret(self, secret_name: str, value: str) -> None:
+        try:
+            _, project_id = google.auth.default()
+            if not project_id:
+                self.logger.warning("google auth did not provide project id for secret update")
+                return
+            client = secretmanager.SecretManagerServiceClient()
+            client.add_secret_version(
+                request={
+                    "parent": f"projects/{project_id}/secrets/{secret_name}",
+                    "payload": {"data": value.encode("utf-8")},
+                }
+            )
+        except Exception:
+            self.logger.exception("failed to persist updated Drive OAuth token")
 
 
 def build_drive_client(settings: Settings) -> DriveClient:
