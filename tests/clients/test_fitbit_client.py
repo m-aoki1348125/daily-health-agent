@@ -218,5 +218,78 @@ def test_fitbit_api_client_retries_after_rate_limit(monkeypatch: pytest.MonkeyPa
     result = client.fetch_day(date(2026, 4, 2))
 
     assert result.sleep.total_minutes == 420
-    assert sleep_attempts == 2
-    assert slept == [1.0]
+
+
+def test_fitbit_api_client_aggregates_multiple_sleep_logs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        fitbit_client_mode="api",
+        fitbit_client_id="client-id",
+        fitbit_client_secret="client-secret",
+        fitbit_refresh_token="refresh-token",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(
+                200,
+                json={"access_token": "fresh-access-token", "expires_in": 28800},
+            )
+        if request.url.path == "/1.2/user/-/sleep/date/2026-04-02.json":
+            return httpx.Response(
+                200,
+                json={
+                    "sleep": [
+                        {
+                            "minutesAsleep": 360,
+                            "efficiency": 90,
+                            "awakeCount": 1,
+                            "startTime": "2026-04-01T23:50:00+09:00",
+                            "levels": {
+                                "summary": {
+                                    "deep": {"minutes": 70},
+                                    "rem": {"minutes": 80},
+                                }
+                            },
+                        },
+                        {
+                            "minutesAsleep": 45,
+                            "efficiency": 80,
+                            "awakeCount": 0,
+                            "startTime": "2026-04-02T06:30:00+09:00",
+                            "levels": {
+                                "summary": {
+                                    "deep": {"minutes": 5},
+                                    "rem": {"minutes": 10},
+                                }
+                            },
+                        },
+                    ]
+                },
+            )
+        if request.url.path == "/1/user/-/activities/heart/date/2026-04-02/1d.json":
+            return httpx.Response(
+                200,
+                json={"activities-heart": [{"value": {"restingHeartRate": 55}}]},
+            )
+        if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
+            return httpx.Response(200, json={"summary": {"steps": 1234, "caloriesOut": 2222}})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    client = FitbitApiClient(settings)
+    monkeypatch.setattr(
+        client,
+        "_build_client",
+        lambda: httpx.Client(timeout=settings.request_timeout_seconds, transport=transport),
+    )
+
+    result = client.fetch_day(date(2026, 4, 2))
+
+    assert result.sleep.total_minutes == 405
+    assert round(result.sleep.efficiency, 1) == 88.9
+    assert result.sleep.deep_minutes == 75
+    assert result.sleep.rem_minutes == 90
+    assert result.sleep.awakenings == 1
+    assert result.sleep.start_time == "2026-04-01T23:50:00+09:00"

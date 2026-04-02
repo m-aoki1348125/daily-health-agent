@@ -82,7 +82,8 @@ class FitbitApiClient(FitbitClient):
         sleep_json = sleep_resp.json()
         hr_json = hr_resp.json()
         activity_json = activity_resp.json()
-        sleep_record = (sleep_json.get("sleep") or [{}])[0]
+        sleep_records = sleep_json.get("sleep") or []
+        aggregated_sleep = _aggregate_sleep_records(sleep_records)
         summary = activity_json.get("summary", {})
         resting_hr = None
         value_list = hr_json.get("activities-heart", [])
@@ -95,24 +96,7 @@ class FitbitApiClient(FitbitClient):
         }
         return FitbitDayRaw(
             date=target_date,
-            sleep=SleepSummary(
-                total_minutes=int(sleep_record.get("minutesAsleep", 0)),
-                efficiency=float(sleep_record.get("efficiency", 0.0)),
-                deep_minutes=int(
-                    _sum_sleep_stage_minutes(
-                        sleep_record.get("levels", {}).get("summary", {}),
-                        "deep",
-                    )
-                ),
-                rem_minutes=int(
-                    _sum_sleep_stage_minutes(
-                        sleep_record.get("levels", {}).get("summary", {}),
-                        "rem",
-                    )
-                ),
-                awakenings=int(sleep_record.get("awakeCount", 0)),
-                start_time=sleep_record.get("startTime"),
-            ),
+            sleep=aggregated_sleep,
             resting_hr=resting_hr,
             activity=ActivitySummary(
                 steps=int(summary.get("steps", 0)),
@@ -221,6 +205,49 @@ class FitbitApiClient(FitbitClient):
 def _sum_sleep_stage_minutes(summary: dict[str, Any], key: str) -> int:
     stage = summary.get(key) or {}
     return int(stage.get("minutes", 0))
+
+
+def _aggregate_sleep_records(records: list[dict[str, Any]]) -> SleepSummary:
+    if not records:
+        return SleepSummary(
+            total_minutes=0,
+            efficiency=0.0,
+            deep_minutes=0,
+            rem_minutes=0,
+            awakenings=0,
+            start_time=None,
+        )
+
+    total_minutes = sum(int(record.get("minutesAsleep", 0)) for record in records)
+    weighted_efficiency_base = sum(int(record.get("minutesAsleep", 0)) for record in records)
+    weighted_efficiency_sum = sum(
+        float(record.get("efficiency", 0.0)) * int(record.get("minutesAsleep", 0))
+        for record in records
+    )
+    deep_minutes = sum(
+        _sum_sleep_stage_minutes(record.get("levels", {}).get("summary", {}), "deep")
+        for record in records
+    )
+    rem_minutes = sum(
+        _sum_sleep_stage_minutes(record.get("levels", {}).get("summary", {}), "rem")
+        for record in records
+    )
+    awakenings = sum(int(record.get("awakeCount", 0)) for record in records)
+    start_time = min(
+        (str(record.get("startTime")) for record in records if record.get("startTime")),
+        default=None,
+    )
+    efficiency = (
+        weighted_efficiency_sum / weighted_efficiency_base if weighted_efficiency_base else 0.0
+    )
+    return SleepSummary(
+        total_minutes=total_minutes,
+        efficiency=efficiency,
+        deep_minutes=deep_minutes,
+        rem_minutes=rem_minutes,
+        awakenings=awakenings,
+        start_time=start_time,
+    )
 
 
 def build_fitbit_client(settings: Settings) -> FitbitClient:

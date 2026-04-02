@@ -23,10 +23,9 @@ class NotificationService:
         sleep_delta = (
             f"{trends.sleep_vs_14d_avg:+.0f}分" if trends.sleep_vs_14d_avg is not None else "N/A"
         )
+        condition_text = self._build_condition_text(report.rule_evaluation.risk_level)
         resting_hr_text = self._build_resting_hr_text(report)
-        fact_bullets = "\n".join(f"- {item}" for item in advice.key_findings[:3])
-        if not fact_bullets:
-            fact_bullets = "- 目立つ悪化サインはありません"
+        fact_bullets = self._build_fact_bullets(report)
         today_actions = "\n".join(f"- {item}" for item in advice.today_actions[:3])
         if not today_actions:
             today_actions = "- 生活リズムを整えながら様子を見てください"
@@ -40,15 +39,46 @@ class NotificationService:
             long_term_lines = "- 過去データが増えるほど中長期の傾向を詳しく分析できます"
         return (
             f"今日の健康サマリー {report.date.isoformat()}\n\n"
-            f"コンディション: {report.rule_evaluation.risk_level.title()}\n"
+            f"コンディション: {condition_text}\n"
             f"睡眠: {sleep_hours}時間{sleep_minutes:02d}分"
             f"（14日平均より {sleep_delta}）\n"
             f"安静時心拍: {resting_hr_text}\n"
             f"前日歩数: {report.metrics.steps:,}歩\n\n"
-            f"昨日の事実\n{fact_bullets}\n\n"
+            f"昨日の健康データ\n{fact_bullets}\n\n"
             f"今日のおすすめ\n{today_actions}\n\n"
             f"中長期の分析\n{long_term_lines}\n\n"
             "詳細レポートは Drive に保存済みです"
+        )
+
+    @staticmethod
+    def _build_condition_text(risk_level: str) -> str:
+        normalized = risk_level.lower()
+        if normalized == "green":
+            return "🟢 Green"
+        if normalized == "yellow":
+            return "🟡 Yellow"
+        if normalized == "red":
+            return "🔴 Red"
+        return risk_level.title()
+
+    @staticmethod
+    def _build_fact_bullets(report: DailyReport) -> str:
+        metrics = report.metrics
+        trends = report.trends
+        sleep_hours = metrics.sleep_minutes // 60
+        sleep_minutes = metrics.sleep_minutes % 60
+        if trends.sleep_vs_14d_avg is None:
+            sleep_delta_text = "14日平均との差分は未算出"
+        else:
+            sleep_delta_text = f"14日平均より {trends.sleep_vs_14d_avg:+.0f}分"
+
+        resting_hr_text = NotificationService._build_resting_hr_text(report)
+        return "\n".join(
+            [
+                f"- 睡眠時間: {sleep_hours}時間{sleep_minutes:02d}分（{sleep_delta_text}）",
+                f"- 安静時心拍: {resting_hr_text}",
+                f"- 前日歩数: {metrics.steps:,}歩",
+            ]
         )
 
     @staticmethod

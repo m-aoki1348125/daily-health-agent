@@ -68,9 +68,12 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
 
     message = service.build_message(report)
 
-    assert "昨日の事実" in message
+    assert "コンディション: 🟢 Green" in message
+    assert "昨日の健康データ" in message
     assert "中長期の分析" in message
-    assert "- 睡眠は14日平均より15分短い" in message
+    assert "- 睡眠時間: 7時間25分（14日平均より -15分）" in message
+    assert "- 安静時心拍: 58 bpm（30日平均より +2 bpm）" in message
+    assert "- 前日歩数: 5,257歩" in message
     assert "- 平日は睡眠がやや短い" in message
     assert "- 平日の就寝が少し遅れる傾向があるため固定化が有効です。" in message
     assert "安静時心拍: 58 bpm（30日平均より +2 bpm）" in message
