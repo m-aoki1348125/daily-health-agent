@@ -37,6 +37,9 @@ class NotificationService:
         long_term_lines = "\n".join(f"- {item}" for item in long_term_items if item)
         if not long_term_lines:
             long_term_lines = "- 過去データが増えるほど中長期の傾向を詳しく分析できます"
+        footer = "詳細レポートは Drive に保存済みです"
+        if advice.provider == "fallback":
+            footer = f"{footer} (Not LLM)"
         return (
             f"今日の健康サマリー {report.date.isoformat()}\n\n"
             f"コンディション: {condition_text}\n"
@@ -47,7 +50,7 @@ class NotificationService:
             f"今日の体調\n{body_condition_lines}\n\n"
             f"今日のアドバイス\n{today_actions}\n\n"
             f"中長期の分析\n{long_term_lines}\n\n"
-            "詳細レポートは Drive に保存済みです"
+            f"{footer}"
         )
 
     @staticmethod

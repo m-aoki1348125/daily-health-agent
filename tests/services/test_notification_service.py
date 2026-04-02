@@ -127,3 +127,48 @@ def test_notification_message_shows_current_resting_hr_even_without_delta() -> N
 
     assert "安静時心拍: 58 bpm（30日平均との差分は未算出）" in message
     assert "- ⛅ 睡眠は確保できています" in message
+
+
+def test_notification_message_marks_rule_based_fallback() -> None:
+    service = NotificationService(DummyLineClient(), Settings())
+    report = DailyReport(
+        date=date(2026, 4, 1),
+        generated_at=datetime.now(UTC),
+        metrics=DailyMetricInput(
+            date=date(2026, 4, 1),
+            sleep_minutes=420,
+            sleep_efficiency=90,
+            deep_sleep_minutes=80,
+            rem_sleep_minutes=90,
+            awakenings=1,
+            resting_hr=57,
+            steps=7000,
+            calories=2100,
+        ),
+        trends=TrendFeatureInput(
+            date=date(2026, 4, 1),
+            sleep_vs_14d_avg=10,
+            resting_hr_vs_30d_avg=-1,
+            sleep_debt_streak_days=0,
+            bedtime_drift_minutes=None,
+            recovery_score=82,
+        ),
+        rule_evaluation=RuleEvaluation(risk_level="green", reasons=[]),
+        advice=AdviceResult(
+            risk_level="green",
+            summary="ルールベース判定に基づくサマリーを生成しました。",
+            key_findings=["☀️ 睡眠回復: 睡眠はしっかり確保できています"],
+            today_actions=["水分補給を意識する"],
+            exercise_advice="軽く体を動かしてください。",
+            sleep_advice="今夜も睡眠を確保してください。",
+            caffeine_advice="午後は控えめにしてください。",
+            medical_note="不調が続けば相談してください。",
+            long_term_comment="長期傾向の安定化には睡眠リズムの固定が有効です。",
+            provider="fallback",
+            model_name="rule-based",
+        ),
+    )
+
+    message = service.build_message(report)
+
+    assert message.endswith("詳細レポートは Drive に保存済みです (Not LLM)")

@@ -104,6 +104,9 @@ class ReportService:
         metrics = report.metrics
         trends = report.trends
         advice = report.advice
+        fallback_note = ""
+        if advice.provider == "fallback":
+            fallback_note = "\n\n_Not LLM: rule-based fallback output used._"
         return f"""# Daily Health Report {report.date.isoformat()}
 
 ## Condition
@@ -121,4 +124,5 @@ class ReportService:
 
 ## Long Term Comment
 {advice.long_term_comment}
+{fallback_note}
 """
