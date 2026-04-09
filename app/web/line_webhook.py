@@ -70,6 +70,7 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
                     meal_logging_service=meal_logging_service,
                     health_chat_service=health_chat_service,
                     default_line_user_id=settings.line_user_id,
+                    restrict_to_configured_user=settings.line_restrict_to_configured_user,
                 ).process_events(payload)
                 session.commit()
             except Exception:

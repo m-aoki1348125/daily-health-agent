@@ -36,6 +36,7 @@ locals {
     GOOGLE_DRIVE_MODE  = "api"
     LINE_CLIENT_MODE   = "api"
     LINE_USER_ID       = var.line_user_id
+    LINE_RESTRICT_TO_CONFIGURED_USER = tostring(var.line_restrict_to_configured_user)
     LLM_PROVIDER       = var.llm_provider
     LLM_MODEL_NAME     = var.llm_model_name
     DATABASE_URL       = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
@@ -59,6 +60,7 @@ locals {
     GOOGLE_DRIVE_MODE  = "api"
     LINE_CLIENT_MODE   = "api"
     LINE_USER_ID       = var.line_user_id
+    LINE_RESTRICT_TO_CONFIGURED_USER = tostring(var.line_restrict_to_configured_user)
     LLM_PROVIDER       = var.llm_provider
     LLM_MODEL_NAME     = var.llm_model_name
     LINE_WEBHOOK_PATH  = var.line_webhook_path

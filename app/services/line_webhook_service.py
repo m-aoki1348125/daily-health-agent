@@ -12,6 +12,7 @@ class LineWebhookService:
     meal_logging_service: MealLoggingService
     health_chat_service: HealthChatService
     default_line_user_id: str
+    restrict_to_configured_user: bool = True
 
     def process_events(self, payload: dict[str, Any]) -> int:
         events = payload.get("events", [])
@@ -22,7 +23,16 @@ class LineWebhookService:
             reply_token = str(event.get("replyToken", ""))
             message = event.get("message", {})
             source = event.get("source", {})
-            line_user_id = str(source.get("userId") or self.default_line_user_id)
+            source_line_user_id = str(source.get("userId") or "")
+            if not self._is_authorized_user(source_line_user_id):
+                if reply_token:
+                    self.meal_logging_service.line_client.reply_message(
+                        reply_token,
+                        "このアカウントは個人利用のため、登録済みの本人アカウントからのみ利用できます。",
+                    )
+                    processed += 1
+                continue
+            line_user_id = source_line_user_id or self.default_line_user_id
             if message.get("type") == "text":
                 if reply_token:
                     response_text = self.health_chat_service.handle_text_message(
@@ -50,3 +60,11 @@ class LineWebhookService:
             )
             processed += 1
         return processed
+
+    def _is_authorized_user(self, source_line_user_id: str) -> bool:
+        if not self.restrict_to_configured_user:
+            return True
+        configured = self.default_line_user_id.strip()
+        if not configured or configured == "mock-user":
+            return True
+        return source_line_user_id == configured

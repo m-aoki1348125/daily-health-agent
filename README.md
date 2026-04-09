@@ -110,6 +110,7 @@ cp .env.example .env
 - `LINE_CHANNEL_ACCESS_TOKEN`
 - `LINE_CHANNEL_SECRET`
 - `LINE_USER_ID`
+- `LINE_RESTRICT_TO_CONFIGURED_USER`
 - `LINE_WEBHOOK_PATH`
 - `LLM_PROVIDER`
 - `LLM_MODEL_NAME`
@@ -134,6 +135,8 @@ Secret Manager の想定 secret 名:
 - `drive-oauth-refresh-token`
 
 `drive-root-folder-id` は Google Drive 上の保存先フォルダ ID です。user OAuth 方式では My Drive 配下のフォルダ ID を指定できます。
+
+LINE webhook は `LINE_USER_ID` に一致する本人アカウントのみ処理する構成を推奨します。`LINE_RESTRICT_TO_CONFIGURED_USER=true` の場合、別ユーザーからのメッセージは保存・参照・修正対象になりません。
 
 ## daily job の実行方法
 

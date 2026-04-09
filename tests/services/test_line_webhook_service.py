@@ -61,14 +61,14 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
                     "type": "message",
                     "replyToken": "reply-text",
                     "timestamp": 1775600000000,
-                    "source": {"userId": "U-line"},
+                    "source": {"userId": "U-default"},
                     "message": {"type": "text", "id": "text-msg-1"},
                 },
                 {
                     "type": "message",
                     "replyToken": "reply-image",
                     "timestamp": 1775600000000,
-                    "source": {"userId": "U-line"},
+                    "source": {"userId": "U-default"},
                     "message": {"type": "image", "id": "meal-image-1"},
                 },
             ]
@@ -80,3 +80,70 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
     assert len(line_client.replied_messages) == 2
     assert "食事写真の記録" not in line_client.replied_messages[0][1]
     assert MealRepository(session).get_by_source_message_id("meal-image-1") is not None
+
+
+def test_line_webhook_service_rejects_unauthorized_user(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        google_drive_mode="local",
+        drive_local_root=str(tmp_path / "drive"),
+        fitbit_client_mode="mock",
+        line_client_mode="mock",
+        llm_provider="mock",
+        line_user_id="U-owner",
+        line_restrict_to_configured_user=True,
+    )
+    line_client = MockLineClient()
+    service = LineWebhookService(
+        meal_logging_service=MealLoggingService(
+            settings=settings,
+            line_client=line_client,
+            drive_client=LocalDriveClient(str(tmp_path / "drive")),
+            llm_provider=MockLLMProvider(),
+            meal_repository=MealRepository(session),
+        ),
+        health_chat_service=HealthChatService(
+            settings=settings,
+            drive_client=LocalDriveClient(str(tmp_path / "drive")),
+            llm_provider=MockLLMProvider(),
+            meal_repository=MealRepository(session),
+            metrics_repository=MetricsRepository(session),
+            advice_repository=AdviceRepository(session),
+            line_state_repository=LineStateRepository(session),
+            meal_logging_service=MealLoggingService(
+                settings=settings,
+                line_client=line_client,
+                drive_client=LocalDriveClient(str(tmp_path / "drive")),
+                llm_provider=MockLLMProvider(),
+                meal_repository=MealRepository(session),
+            ),
+        ),
+        default_line_user_id=settings.line_user_id,
+        restrict_to_configured_user=settings.line_restrict_to_configured_user,
+    )
+
+    processed = service.process_events(
+        {
+            "events": [
+                {
+                    "type": "message",
+                    "replyToken": "reply-unauthorized",
+                    "timestamp": 1775600000000,
+                    "source": {"userId": "U-other"},
+                    "message": {
+                        "type": "text",
+                        "id": "text-msg-unauthorized",
+                        "text": "昨日の健康ログを教えて",
+                    },
+                }
+            ]
+        }
+    )
+
+    assert processed == 1
+    assert len(line_client.replied_messages) == 1
+    assert "本人アカウント" in line_client.replied_messages[0][1]
+    assert MealRepository(session).get_by_source_message_id("text-msg-unauthorized") is None

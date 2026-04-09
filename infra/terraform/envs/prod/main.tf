@@ -12,6 +12,7 @@ module "prod" {
   weekly_schedule              = var.weekly_schedule
   monthly_schedule             = var.monthly_schedule
   line_user_id                 = var.line_user_id
+  line_restrict_to_configured_user = var.line_restrict_to_configured_user
   llm_provider                 = var.llm_provider
   llm_model_name               = var.llm_model_name
   private_network              = var.private_network

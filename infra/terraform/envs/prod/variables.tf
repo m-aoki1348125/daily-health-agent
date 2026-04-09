@@ -9,6 +9,10 @@ variable "daily_schedule" { type = string }
 variable "weekly_schedule" { type = string }
 variable "monthly_schedule" { type = string }
 variable "line_user_id" { type = string }
+variable "line_restrict_to_configured_user" {
+  type    = bool
+  default = true
+}
 variable "llm_provider" { type = string }
 variable "llm_model_name" { type = string }
 variable "private_network" { type = string }

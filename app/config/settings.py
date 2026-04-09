@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     line_channel_access_token: str | None = None
     line_channel_secret: str | None = None
     line_user_id: str = "mock-user"
+    line_restrict_to_configured_user: bool = True
     line_webhook_path: str = "/line/webhook"
     line_webhook_port: int = 8080
 
