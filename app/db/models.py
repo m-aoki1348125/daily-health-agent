@@ -104,3 +104,15 @@ class MealRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), onupdate=func.now()
     )
+
+
+class LineConversationState(Base):
+    __tablename__ = "line_conversation_states"
+
+    line_user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    intent: Mapped[str] = mapped_column(String(64))
+    state_json: Mapped[dict[str, object]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=func.now(), onupdate=func.now()
+    )

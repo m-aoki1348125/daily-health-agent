@@ -43,6 +43,9 @@ class MealRepository:
         )
         return self.session.scalar(stmt)
 
+    def get_by_id(self, meal_id: int) -> MealRecord | None:
+        return self.session.get(MealRecord, meal_id)
+
     def list_for_date(self, meal_date: date) -> list[MealRecord]:
         stmt: Select[tuple[MealRecord]] = (
             select(MealRecord)
@@ -74,6 +77,10 @@ class MealRepository:
 
     def delete(self, meal: MealRecord) -> None:
         self.session.delete(meal)
+
+    def update_estimated_calories(self, meal: MealRecord, estimated_calories: int) -> MealRecord:
+        meal.estimated_calories = estimated_calories
+        return meal
 
     def sum_calories_for_date(self, meal_date: date) -> int:
         stmt = select(func.coalesce(func.sum(MealRecord.estimated_calories), 0)).where(

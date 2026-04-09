@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 from app.clients.drive_client import DriveClient
 from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
+from app.db.models import MealRecord
 from app.repositories.advice_repository import AdviceRepository
+from app.repositories.line_state_repository import LineStateRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.services.meal_logging_service import MealLoggingService
@@ -23,6 +25,7 @@ class HealthChatService:
     meal_repository: MealRepository
     metrics_repository: MetricsRepository
     advice_repository: AdviceRepository
+    line_state_repository: LineStateRepository
     meal_logging_service: MealLoggingService
 
     def handle_text_message(
@@ -35,6 +38,14 @@ class HealthChatService:
         normalized = self._normalize_text(text)
         target_date = self._resolve_date(normalized, event_timestamp_ms)
 
+        if self._looks_like_meal_selection(normalized):
+            resolved = self._resolve_pending_meal_selection(
+                normalized=normalized,
+                line_user_id=line_user_id,
+            )
+            if resolved is not None:
+                return resolved
+
         if "削除" in normalized and ("食事" in normalized or "写真" in normalized):
             return self._delete_latest_meal(line_user_id=line_user_id, target_date=target_date)
 
@@ -45,6 +56,17 @@ class HealthChatService:
             return self._correct_sleep_duration(
                 target_date=target_date,
                 sleep_minutes=corrected_minutes,
+            )
+
+        if self._looks_like_meal_correction(normalized):
+            corrected_calories = self._parse_calories(normalized)
+            if corrected_calories is None:
+                return "食事の修正は『この昼食を650kcalに修正』のように送ってください。"
+            return self._correct_meal_calories(
+                normalized=normalized,
+                line_user_id=line_user_id,
+                target_date=target_date,
+                corrected_calories=corrected_calories,
             )
 
         if any(word in normalized for word in ["食事回数", "摂取カロリー", "食事"]) and any(
@@ -96,6 +118,7 @@ class HealthChatService:
         self.meal_repository.delete(meal)
         self.meal_repository.flush()
         self.meal_logging_service.store_daily_summary(meal_date)
+        self.line_state_repository.clear(line_user_id)
         total = self.meal_repository.sum_calories_for_date(meal_date)
         count = len(self.meal_repository.list_for_user_and_date(line_user_id, meal_date))
         return (
@@ -130,20 +153,120 @@ class HealthChatService:
             "今後のトレンド分析とアドバイスに反映します。"
         )
 
+    def _correct_meal_calories(
+        self,
+        *,
+        normalized: str,
+        line_user_id: str,
+        target_date: date,
+        corrected_calories: int,
+    ) -> str:
+        meals = self.meal_repository.list_for_user_and_date(line_user_id, target_date)
+        if not meals:
+            return f"{target_date.isoformat()} の食事記録が見つからないため修正できませんでした。"
+
+        meal = self._pick_meal_from_text(normalized, meals)
+        if meal is not None:
+            return self._apply_meal_correction(
+                meal=meal,
+                line_user_id=line_user_id,
+                corrected_calories=corrected_calories,
+            )
+
+        self.line_state_repository.upsert(
+            line_user_id,
+            "meal_correction",
+            {
+                "date": target_date.isoformat(),
+                "corrected_calories": corrected_calories,
+                "candidate_meal_ids": [meal.id for meal in meals],
+            },
+        )
+        return self._build_candidate_prompt(
+            target_date=target_date,
+            meals=meals,
+            corrected_calories=corrected_calories,
+        )
+
+    def _resolve_pending_meal_selection(self, *, normalized: str, line_user_id: str) -> str | None:
+        state = self.line_state_repository.get(line_user_id)
+        if state is None or state.intent != "meal_correction":
+            return None
+        selection = self._parse_candidate_index(normalized)
+        if selection is None:
+            return None
+
+        candidate_ids = state.state_json.get("candidate_meal_ids", [])
+        if not isinstance(candidate_ids, list) or selection < 1 or selection > len(candidate_ids):
+            return "候補番号が見つかりませんでした。案内した番号で指定してください。"
+
+        meal_id = candidate_ids[selection - 1]
+        if not isinstance(meal_id, int):
+            return "候補情報の読み取りに失敗しました。もう一度修正内容を送ってください。"
+
+        corrected_calories = state.state_json.get("corrected_calories")
+        if not isinstance(corrected_calories, int):
+            parsed_calories = self._parse_calories(normalized)
+            if parsed_calories is None:
+                return (
+                    "修正後のカロリーが読み取れませんでした。"
+                    "『2番を650kcalに修正』のように送ってください。"
+                )
+            corrected_calories = parsed_calories
+
+        meal = self.meal_repository.get_by_id(meal_id)
+        if meal is None:
+            self.line_state_repository.clear(line_user_id)
+            return "候補の食事記録が見つかりませんでした。もう一度修正内容を送ってください。"
+        return self._apply_meal_correction(
+            meal=meal,
+            line_user_id=line_user_id,
+            corrected_calories=corrected_calories,
+        )
+
+    def _apply_meal_correction(
+        self,
+        *,
+        meal: MealRecord,
+        line_user_id: str,
+        corrected_calories: int,
+    ) -> str:
+        before_calories = meal.estimated_calories
+        self.meal_repository.update_estimated_calories(meal, corrected_calories)
+        self.meal_repository.flush()
+        self.meal_logging_service.store_daily_summary(meal.meal_date)
+        self.line_state_repository.clear(line_user_id)
+        self.drive_client.store_json(
+            category="corrections",
+            target_date=meal.meal_date,
+            filename=f"{meal.meal_date.isoformat()}_{meal.source_message_id}_meal_correction.json",
+            payload={
+                "action": "correct_meal_calories",
+                "corrected_at": datetime.now(ZoneInfo(self.settings.timezone)).isoformat(),
+                "meal_date": meal.meal_date.isoformat(),
+                "source_message_id": meal.source_message_id,
+                "before_calories": before_calories,
+                "after_calories": corrected_calories,
+                "summary": meal.summary,
+                "meal_items": list(meal.meal_items_json),
+            },
+        )
+        total = self.meal_repository.sum_calories_for_date(meal.meal_date)
+        return (
+            f"{meal.meal_date.isoformat()} {self._format_meal_label(meal)} の食事を "
+            f"{before_calories} kcal から {corrected_calories} kcal に修正しました。\n"
+            f"その日の食事合計は現在 {total} kcal です。"
+        )
+
     def _summarize_meals(self, *, target_date: date, line_user_id: str) -> str:
         meals = self.meal_repository.list_for_user_and_date(line_user_id, target_date)
         total = sum(meal.estimated_calories for meal in meals)
         if not meals:
             return f"{target_date.isoformat()} の食事記録はありません。"
-        lines = [
-            f"{target_date.isoformat()} の食事は {len(meals)} 回、合計 {total} kcal です。"
-        ]
+        lines = [f"{target_date.isoformat()} の食事は {len(meals)} 回、合計 {total} kcal です。"]
         for idx, meal in enumerate(meals, start=1):
-            meal_time = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone)).strftime(
-                "%H:%M"
-            )
             lines.append(
-                f"{idx}回目 {meal_time}: "
+                f"{idx}回目 {self._format_meal_label(meal)}: "
                 f"{meal.estimated_calories} kcal（{meal.summary}）"
             )
         return "\n".join(lines)
@@ -152,7 +275,7 @@ class HealthChatService:
         metric = self.metrics_repository.get_daily_metric(target_date)
         if metric is None:
             return f"{target_date.isoformat()} の健康ログはまだありません。"
-        total_meal_calories = metric.meal_calories or 0
+        total_meal_calories = self.meal_repository.sum_calories_for_date(target_date)
         meal_count = len(self.meal_repository.list_for_date(target_date))
         return (
             f"{target_date.isoformat()} の健康ログです。\n"
@@ -195,7 +318,7 @@ class HealthChatService:
         except Exception:
             return (
                 "記録を確認しました。詳しい指示は簡潔にお伝えしますので、"
-                "『昨日の食事回数を教えて』『睡眠時間を8時間に修正』のように送ってください。"
+                "『昨日の食事回数を教えて』『昼食を650kcalに修正』のように送ってください。"
             )
 
     def _build_question_context(self, target_date: date) -> dict[str, Any]:
@@ -212,7 +335,7 @@ class HealthChatService:
                 "resting_hr": metric.resting_hr if metric else None,
                 "steps": metric.steps if metric else None,
                 "fitbit_calories": metric.calories if metric else None,
-                "meal_calories": metric.meal_calories if metric else None,
+                "meal_calories": self.meal_repository.sum_calories_for_date(target_date),
             },
             "meals": [
                 {
@@ -241,9 +364,47 @@ class HealthChatService:
             "meal_total_calories": sum(meal.estimated_calories for meal in meals),
         }
 
+    def _pick_meal_from_text(self, text: str, meals: list[MealRecord]) -> MealRecord | None:
+        index = self._parse_candidate_index(text)
+        if index is not None and 1 <= index <= len(meals):
+            return meals[index - 1]
+
+        daypart = self._parse_daypart(text)
+        if daypart is None:
+            return meals[-1] if len(meals) == 1 else None
+
+        matched = [meal for meal in meals if self._meal_matches_daypart(meal, daypart)]
+        if len(matched) == 1:
+            return matched[0]
+        if not matched and len(meals) == 1:
+            return meals[0]
+        return None
+
+    def _build_candidate_prompt(
+        self,
+        *,
+        target_date: date,
+        meals: list[MealRecord],
+        corrected_calories: int,
+    ) -> str:
+        lines = [
+            (
+                f"{target_date.isoformat()} の候補が複数あるので、"
+                "修正したい食事を番号で指定してください。"
+            ),
+            f"例:『2番を{corrected_calories}kcalに修正』",
+        ]
+        for idx, meal in enumerate(meals, start=1):
+            lines.append(
+                f"{idx}番 {self._format_meal_label(meal)} / "
+                f"{meal.estimated_calories} kcal（{meal.summary}）"
+            )
+        return "\n".join(lines)
+
     def _resolve_date(self, text: str, event_timestamp_ms: int) -> date:
         base_date = datetime.fromtimestamp(
-            event_timestamp_ms / 1000, tz=ZoneInfo(self.settings.timezone)
+            event_timestamp_ms / 1000,
+            tz=ZoneInfo(self.settings.timezone),
         ).date()
         if "一昨日" in text:
             return base_date - timedelta(days=2)
@@ -274,7 +435,59 @@ class HealthChatService:
         return None
 
     @staticmethod
+    def _parse_calories(text: str) -> int | None:
+        match = re.search(r"(\d+)\s*(?:kcal|キロカロリー|cal)", text, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return None
+
+    @staticmethod
+    def _parse_candidate_index(text: str) -> int | None:
+        match = re.search(r"(\d+)\s*番", text)
+        if match:
+            return int(match.group(1))
+        return None
+
+    @staticmethod
+    def _parse_daypart(text: str) -> str | None:
+        if "朝食" in text:
+            return "breakfast"
+        if "昼食" in text or "ランチ" in text:
+            return "lunch"
+        if "夕食" in text or "夜ご飯" in text or "晩ごはん" in text:
+            return "dinner"
+        return None
+
+    @staticmethod
+    def _looks_like_meal_selection(text: str) -> bool:
+        return "番" in text and any(word in text for word in ["修正", "訂正", "変更", "直して"])
+
+    @staticmethod
+    def _looks_like_meal_correction(text: str) -> bool:
+        if not any(word in text for word in ["修正", "訂正", "変更", "直して"]):
+            return False
+        meal_words = ["食事", "朝食", "昼食", "ランチ", "夕食", "夜ご飯", "晩ごはん"]
+        if any(word in text for word in meal_words):
+            return True
+        return "kcal" in text or "キロカロリー" in text
+
+    @staticmethod
+    def _meal_matches_daypart(meal: MealRecord, daypart: str) -> bool:
+        hour = meal.consumed_at.hour
+        if daypart == "breakfast":
+            return 4 <= hour < 11
+        if daypart == "lunch":
+            return 11 <= hour < 15
+        if daypart == "dinner":
+            return 17 <= hour <= 23
+        return False
+
+    @staticmethod
     def _format_minutes(total_minutes: int) -> str:
         hours = total_minutes // 60
         minutes = total_minutes % 60
         return f"{hours}時間{minutes:02d}分"
+
+    def _format_meal_label(self, meal: MealRecord) -> str:
+        local_dt = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone))
+        return f"{local_dt.strftime('%H:%M')}頃の食事"

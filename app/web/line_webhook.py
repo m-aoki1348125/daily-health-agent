@@ -16,6 +16,7 @@ from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.db.session import create_session_factory
 from app.repositories.advice_repository import AdviceRepository
+from app.repositories.line_state_repository import LineStateRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.services.health_chat_service import HealthChatService
@@ -60,6 +61,7 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
                 meal_repository=MealRepository(session),
                 metrics_repository=MetricsRepository(session),
                 advice_repository=AdviceRepository(session),
+                line_state_repository=LineStateRepository(session),
                 meal_logging_service=meal_logging_service,
             )
             processed = LineWebhookService(

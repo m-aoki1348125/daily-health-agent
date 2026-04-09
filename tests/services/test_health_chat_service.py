@@ -13,6 +13,7 @@ from app.clients.llm_factory import MockLLMProvider
 from app.config.settings import Settings
 from app.db.models import AdviceHistory, DailyMetric, MealRecord
 from app.repositories.advice_repository import AdviceRepository
+from app.repositories.line_state_repository import LineStateRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.services.health_chat_service import HealthChatService
@@ -35,6 +36,7 @@ def build_service(session: Session, settings: Settings, tmp_path: Path) -> Healt
         meal_repository=MealRepository(session),
         metrics_repository=MetricsRepository(session),
         advice_repository=AdviceRepository(session),
+        line_state_repository=LineStateRepository(session),
         meal_logging_service=meal_logging_service,
     )
 
@@ -221,3 +223,110 @@ def test_health_chat_service_answers_exercise_question(
         ),
     )
     assert "今日運動するとしたら何が最適" in message
+
+
+def test_health_chat_service_corrects_specific_lunch_directly(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    session.add(
+        MealRecord(
+            source_message_id="meal-msg-3",
+            meal_date=date(2026, 4, 1),
+            consumed_at=datetime(2026, 4, 1, 12, 15, tzinfo=ZoneInfo("Asia/Tokyo")),
+            line_user_id="U-test",
+            image_mime_type="image/jpeg",
+            estimated_calories=780,
+            confidence="medium",
+            summary="昼の定食です。",
+            meal_items_json=["ごはん", "鶏肉"],
+            rationale="推定",
+            provider="mock",
+            model_name="mock",
+        )
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="昨日のこの昼食を650kcalに修正してください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meal = MealRepository(session).get_by_source_message_id("meal-msg-3")
+    assert meal is not None
+    assert meal.estimated_calories == 650
+    assert "650 kcal" in message
+
+
+def test_health_chat_service_requests_candidate_selection_for_multiple_meals(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    session.add_all(
+        [
+            MealRecord(
+                source_message_id="meal-msg-10",
+                meal_date=date(2026, 4, 1),
+                consumed_at=datetime(2026, 4, 1, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+                line_user_id="U-test",
+                image_mime_type="image/jpeg",
+                estimated_calories=500,
+                confidence="medium",
+                summary="昼食Aです。",
+                meal_items_json=["A"],
+                rationale="推定",
+                provider="mock",
+                model_name="mock",
+            ),
+            MealRecord(
+                source_message_id="meal-msg-11",
+                meal_date=date(2026, 4, 1),
+                consumed_at=datetime(2026, 4, 1, 13, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+                line_user_id="U-test",
+                image_mime_type="image/jpeg",
+                estimated_calories=700,
+                confidence="medium",
+                summary="昼食Bです。",
+                meal_items_json=["B"],
+                rationale="推定",
+                provider="mock",
+                model_name="mock",
+            ),
+        ]
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    prompt = service.handle_text_message(
+        text="昨日の昼食を650kcalに修正してください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    assert "候補が複数ある" in prompt
+    assert "1番" in prompt
+    assert "2番" in prompt
+
+    message = service.handle_text_message(
+        text="2番を650kcalに修正してください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 12, 1, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meal = MealRepository(session).get_by_source_message_id("meal-msg-11")
+    assert meal is not None
+    assert meal.estimated_calories == 650
+    assert "650 kcal" in message
