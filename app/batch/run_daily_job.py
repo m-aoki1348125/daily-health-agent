@@ -12,8 +12,7 @@ from app.clients.line_client import build_line_client
 from app.clients.llm_factory import build_llm_provider
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
-from app.db.base import Base
-from app.db.session import create_engine_from_settings, create_session_factory
+from app.db.session import create_session_factory
 from app.repositories.advice_repository import AdviceRepository
 from app.repositories.drive_index_repository import DriveIndexRepository
 from app.repositories.meal_repository import MealRepository
@@ -123,9 +122,7 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
 def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
-    engine = create_engine_from_settings(settings)
     session_factory = create_session_factory(settings)
-    Base.metadata.create_all(engine)
     with session_factory() as session:
         result = run(session, settings)
         session.commit()

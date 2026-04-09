@@ -14,17 +14,15 @@ from app.clients.line_client import build_line_client
 from app.clients.llm_factory import build_llm_provider
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
-from app.db.base import Base
-from app.db.session import create_engine_from_settings, create_session_factory
+from app.db.session import create_session_factory
 from app.repositories.meal_repository import MealRepository
+from app.services.line_webhook_service import LineWebhookService
 from app.services.meal_logging_service import MealLoggingService
 
 
 def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastAPI:
     settings = settings_factory()
     configure_logging(settings.log_level)
-    engine = create_engine_from_settings(settings)
-    Base.metadata.create_all(engine)
     session_factory = create_session_factory(settings)
     app = FastAPI(title="daily-health-agent-line-webhook")
     logger = logging.getLogger(__name__)
@@ -40,36 +38,19 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
         if not _is_valid_signature(settings, body, signature):
             raise HTTPException(status_code=401, detail="invalid signature")
         payload = await request.json()
-        events = payload.get("events", [])
         processed = 0
         with session_factory() as session:
-            service = MealLoggingService(
+            meal_logging_service = MealLoggingService(
                 settings=settings,
                 line_client=build_line_client(settings),
                 drive_client=build_drive_client(settings),
                 llm_provider=build_llm_provider(settings),
                 meal_repository=MealRepository(session),
             )
-            for event in events:
-                if event.get("type") != "message":
-                    continue
-                reply_token = str(event.get("replyToken", ""))
-                message = event.get("message", {})
-                if message.get("type") != "image":
-                    if reply_token:
-                        service.line_client.reply_message(
-                            reply_token,
-                            "食事写真を送ると、推定カロリーを記録して明朝の健康アドバイスへ反映します。",
-                        )
-                    continue
-                source = event.get("source", {})
-                service.process_image_message(
-                    message_id=str(message.get("id")),
-                    reply_token=reply_token,
-                    line_user_id=str(source.get("userId") or settings.line_user_id),
-                    event_timestamp_ms=int(event.get("timestamp")),
-                )
-                processed += 1
+            processed = LineWebhookService(
+                meal_logging_service=meal_logging_service,
+                default_line_user_id=settings.line_user_id,
+            ).process_events(payload)
             session.commit()
         logger.info("processed line webhook events", extra={"processed_count": processed})
         return JSONResponse({"ok": True, "processed": processed})
@@ -78,7 +59,7 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
 
 
 def _is_valid_signature(settings: Settings, body: bytes, signature: str) -> bool:
-    if not settings.line_channel_secret:
+    if not settings.line_channel_secret or settings.line_channel_secret == "__DISABLED__":
         return True
     digest = hmac.new(
         settings.line_channel_secret.encode("utf-8"),
