@@ -21,3 +21,12 @@ class LLMProvider(ABC):
         mime_type: str,
     ) -> MealEstimateResult:
         raise NotImplementedError
+
+    @abstractmethod
+    def answer_health_question(
+        self,
+        *,
+        question: str,
+        context: dict[str, Any],
+    ) -> str:
+        raise NotImplementedError

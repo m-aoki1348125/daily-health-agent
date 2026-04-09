@@ -15,7 +15,10 @@ from app.clients.llm_factory import build_llm_provider
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.db.session import create_session_factory
+from app.repositories.advice_repository import AdviceRepository
 from app.repositories.meal_repository import MealRepository
+from app.repositories.metrics_repository import MetricsRepository
+from app.services.health_chat_service import HealthChatService
 from app.services.line_webhook_service import LineWebhookService
 from app.services.meal_logging_service import MealLoggingService
 
@@ -40,15 +43,28 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
         payload = await request.json()
         processed = 0
         with session_factory() as session:
+            line_client = build_line_client(settings)
+            drive_client = build_drive_client(settings)
+            llm_provider = build_llm_provider(settings)
             meal_logging_service = MealLoggingService(
                 settings=settings,
-                line_client=build_line_client(settings),
-                drive_client=build_drive_client(settings),
-                llm_provider=build_llm_provider(settings),
+                line_client=line_client,
+                drive_client=drive_client,
+                llm_provider=llm_provider,
                 meal_repository=MealRepository(session),
+            )
+            health_chat_service = HealthChatService(
+                settings=settings,
+                drive_client=drive_client,
+                llm_provider=llm_provider,
+                meal_repository=MealRepository(session),
+                metrics_repository=MetricsRepository(session),
+                advice_repository=AdviceRepository(session),
+                meal_logging_service=meal_logging_service,
             )
             processed = LineWebhookService(
                 meal_logging_service=meal_logging_service,
+                health_chat_service=health_chat_service,
                 default_line_user_id=settings.line_user_id,
             ).process_events(payload)
             session.commit()

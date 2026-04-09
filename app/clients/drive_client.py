@@ -114,6 +114,8 @@ class LocalDriveClient(DriveClient):
             return self.root / "HealthAgent" / "meal_images" / year / year_month / filename
         if category == "meal_records":
             return self.root / "HealthAgent" / "meal_records" / year / year_month / filename
+        if category == "corrections":
+            return self.root / "HealthAgent" / "corrections" / year / year_month / filename
         raise ValueError(f"unsupported category: {category}")
 
     @staticmethod
@@ -217,7 +219,7 @@ class GoogleDriveClient(DriveClient):
 
     def _ensure_folder_path(self, category: str, target_date: date) -> str:
         parts = ["HealthAgent", category]
-        if category in {"raw", "daily_reports", "meal_images", "meal_records"}:
+        if category in {"raw", "daily_reports", "meal_images", "meal_records", "corrections"}:
             parts.extend([target_date.strftime("%Y"), target_date.strftime("%Y-%m")])
         elif category in {"weekly_reports", "monthly_reports"}:
             parts.append(target_date.strftime("%Y"))

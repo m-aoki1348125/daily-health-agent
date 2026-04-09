@@ -54,6 +54,18 @@ class MockLLMProvider(LLMProvider):
             model_name=self.model_name,
         )
 
+    def answer_health_question(
+        self,
+        *,
+        question: str,
+        context: dict[str, Any],
+    ) -> str:
+        del context
+        return (
+            f"昨日までの記録を踏まえると、{question}への答えは、"
+            "軽めに無理なく進めるのがよさそうです。"
+        )
+
 
 def build_llm_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "openai":

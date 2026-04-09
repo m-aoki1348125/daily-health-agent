@@ -51,6 +51,30 @@ class MealRepository:
         )
         return list(self.session.scalars(stmt))
 
+    def list_for_user_and_date(self, line_user_id: str, meal_date: date) -> list[MealRecord]:
+        stmt: Select[tuple[MealRecord]] = (
+            select(MealRecord)
+            .where(MealRecord.line_user_id == line_user_id, MealRecord.meal_date == meal_date)
+            .order_by(MealRecord.consumed_at)
+        )
+        return list(self.session.scalars(stmt))
+
+    def get_latest_for_user(
+        self,
+        line_user_id: str,
+        meal_date: date | None = None,
+    ) -> MealRecord | None:
+        stmt: Select[tuple[MealRecord]] = select(MealRecord).where(
+            MealRecord.line_user_id == line_user_id
+        )
+        if meal_date is not None:
+            stmt = stmt.where(MealRecord.meal_date == meal_date)
+        stmt = stmt.order_by(MealRecord.consumed_at.desc()).limit(1)
+        return self.session.scalar(stmt)
+
+    def delete(self, meal: MealRecord) -> None:
+        self.session.delete(meal)
+
     def sum_calories_for_date(self, meal_date: date) -> int:
         stmt = select(func.coalesce(func.sum(MealRecord.estimated_calories), 0)).where(
             MealRecord.meal_date == meal_date

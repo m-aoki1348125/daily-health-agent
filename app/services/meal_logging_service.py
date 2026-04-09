@@ -94,7 +94,7 @@ class MealLoggingService:
         )
         self.meal_repository.upsert(meal)
         self.meal_repository.flush()
-        self._store_daily_summary(target_date)
+        self.store_daily_summary(target_date)
         total_for_day = self.meal_repository.sum_calories_for_date(target_date)
         reply_text = (
             f"食事を記録しました。推定摂取カロリーは {estimate.estimated_calories} kcal です。\n"
@@ -104,7 +104,7 @@ class MealLoggingService:
         self.line_client.reply_message(reply_token, reply_text)
         return reply_text
 
-    def _store_daily_summary(self, target_date: date) -> None:
+    def store_daily_summary(self, target_date: date) -> None:
         meals = self.meal_repository.list_for_date(target_date)
         payload = {
             "date": target_date.isoformat(),

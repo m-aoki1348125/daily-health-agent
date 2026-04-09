@@ -67,3 +67,10 @@ class MetricsRepository:
 
     def get_daily_metric(self, metric_date: date) -> DailyMetric | None:
         return self.session.get(DailyMetric, metric_date)
+
+    def update_sleep_minutes(self, metric_date: date, sleep_minutes: int) -> DailyMetric | None:
+        entity = self.get_daily_metric(metric_date)
+        if entity is None:
+            return None
+        entity.sleep_minutes = sleep_minutes
+        return entity

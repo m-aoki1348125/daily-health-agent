@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AdviceHistory
@@ -34,3 +35,9 @@ class AdviceRepository:
 
     def get_advice(self, report_date: date) -> AdviceHistory | None:
         return self.session.get(AdviceHistory, report_date)
+
+    def get_latest_advice(self) -> AdviceHistory | None:
+        stmt: Select[tuple[AdviceHistory]] = (
+            select(AdviceHistory).order_by(AdviceHistory.date.desc()).limit(1)
+        )
+        return self.session.scalar(stmt)

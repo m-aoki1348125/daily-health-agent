@@ -78,6 +78,30 @@ class OpenAIProvider(LLMProvider):
         data["model_name"] = self.model_name
         return MealEstimateResult.model_validate(data)
 
+    def answer_health_question(
+        self,
+        *,
+        question: str,
+        context: dict[str, Any],
+    ) -> str:
+        response = self.client.responses.create(
+            model=self.model_name,
+            input=[
+                {"role": "system", "content": _health_question_system_prompt()},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "question": question,
+                            "context": context,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        return response.output_text.strip()
+
 
 def _system_prompt() -> str:
     return (
@@ -118,4 +142,14 @@ def _meal_system_prompt() -> str:
         "meal_items, rationale のみを含めてください。"
         "estimated_calories は整数kcal、confidence は low/medium/high のいずれか、"
         "summary と rationale は自然な日本語、meal_items は日本語の短い配列にしてください。"
+    )
+
+
+def _health_question_system_prompt() -> str:
+    return (
+        "あなたは個人向けの健康ログアシスタントです。"
+        "入力される question と context の事実だけを使って、日本語で簡潔に返答してください。"
+        "診断はせず、医療判断は控えめにしてください。"
+        "運動相談には、今日無理なくできる実行案を短く具体的に返してください。"
+        "LINE 向けの平文のみを返し、JSON や Markdown は使わないでください。"
     )

@@ -84,6 +84,36 @@ class ClaudeProvider(LLMProvider):
         data["model_name"] = model_name
         return MealEstimateResult.model_validate(data)
 
+    def answer_health_question(
+        self,
+        *,
+        question: str,
+        context: dict[str, Any],
+    ) -> str:
+        model_name = self._resolve_model_name()
+        message = self.client.messages.create(
+            model=model_name,
+            max_tokens=700,
+            system=_health_question_system_prompt(),
+            messages=[
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "question": question,
+                            "context": context,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ],
+        )
+        return "".join(
+            cast(str, block.text)
+            for block in message.content
+            if hasattr(block, "text") and block.text is not None
+        ).strip()
+
     def _resolve_model_name(self) -> str:
         preferred = self.model_name
         if self._model_exists(preferred):
@@ -228,6 +258,18 @@ def _meal_system_prompt() -> str:
         "キーは estimated_calories, confidence, summary, meal_items, rationale のみです。"
         "estimated_calories は整数kcal、confidence は low/medium/high のいずれか、"
         "summary と rationale は自然な日本語、meal_items は日本語の短い配列にしてください。"
+    )
+
+
+def _health_question_system_prompt() -> str:
+    return (
+        "あなたは個人向けの健康ログアシスタントです。"
+        "入力される question と context だけに基づいて、自然な日本語で簡潔に答えてください。"
+        "医師ではないため診断はせず、断定的な医療判断は避けてください。"
+        "運動の質問には、睡眠、心拍、歩数、食事、直近アドバイスを踏まえて"
+        "今日無理なくできる具体策を 2〜4 文で返してください。"
+        "記録参照の質問には、context にある数値だけを使って答えてください。"
+        "Markdown や JSON ではなく、LINE にそのまま返せる平文だけを返してください。"
     )
 
 

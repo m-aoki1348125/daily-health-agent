@@ -8,7 +8,10 @@ from app.clients.drive_client import LocalDriveClient
 from app.clients.line_client import MockLineClient
 from app.clients.llm_factory import MockLLMProvider
 from app.config.settings import Settings
+from app.repositories.advice_repository import AdviceRepository
 from app.repositories.meal_repository import MealRepository
+from app.repositories.metrics_repository import MetricsRepository
+from app.services.health_chat_service import HealthChatService
 from app.services.line_webhook_service import LineWebhookService
 from app.services.meal_logging_service import MealLoggingService
 
@@ -37,6 +40,15 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
     )
     service = LineWebhookService(
         meal_logging_service=meal_logging_service,
+        health_chat_service=HealthChatService(
+            settings=settings,
+            drive_client=LocalDriveClient(str(tmp_path / "drive")),
+            llm_provider=MockLLMProvider(),
+            meal_repository=MealRepository(session),
+            metrics_repository=MetricsRepository(session),
+            advice_repository=AdviceRepository(session),
+            meal_logging_service=meal_logging_service,
+        ),
         default_line_user_id=settings.line_user_id,
     )
 
@@ -62,6 +74,7 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
     )
     session.commit()
 
-    assert processed == 1
+    assert processed == 2
     assert len(line_client.replied_messages) == 2
+    assert "食事写真の記録" not in line_client.replied_messages[0][1]
     assert MealRepository(session).get_by_source_message_id("meal-image-1") is not None
