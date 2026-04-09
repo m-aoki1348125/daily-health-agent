@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -43,33 +44,38 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
             raise HTTPException(status_code=401, detail="invalid signature")
         payload = await request.json()
         processed = 0
+        line_client = build_line_client(settings)
         with session_factory() as session:
-            line_client = build_line_client(settings)
-            drive_client = build_drive_client(settings)
-            llm_provider = build_llm_provider(settings)
-            meal_logging_service = MealLoggingService(
-                settings=settings,
-                line_client=line_client,
-                drive_client=drive_client,
-                llm_provider=llm_provider,
-                meal_repository=MealRepository(session),
-            )
-            health_chat_service = HealthChatService(
-                settings=settings,
-                drive_client=drive_client,
-                llm_provider=llm_provider,
-                meal_repository=MealRepository(session),
-                metrics_repository=MetricsRepository(session),
-                advice_repository=AdviceRepository(session),
-                line_state_repository=LineStateRepository(session),
-                meal_logging_service=meal_logging_service,
-            )
-            processed = LineWebhookService(
-                meal_logging_service=meal_logging_service,
-                health_chat_service=health_chat_service,
-                default_line_user_id=settings.line_user_id,
-            ).process_events(payload)
-            session.commit()
+            try:
+                drive_client = build_drive_client(settings)
+                llm_provider = build_llm_provider(settings)
+                meal_logging_service = MealLoggingService(
+                    settings=settings,
+                    line_client=line_client,
+                    drive_client=drive_client,
+                    llm_provider=llm_provider,
+                    meal_repository=MealRepository(session),
+                )
+                health_chat_service = HealthChatService(
+                    settings=settings,
+                    drive_client=drive_client,
+                    llm_provider=llm_provider,
+                    meal_repository=MealRepository(session),
+                    metrics_repository=MetricsRepository(session),
+                    advice_repository=AdviceRepository(session),
+                    line_state_repository=LineStateRepository(session),
+                    meal_logging_service=meal_logging_service,
+                )
+                processed = LineWebhookService(
+                    meal_logging_service=meal_logging_service,
+                    health_chat_service=health_chat_service,
+                    default_line_user_id=settings.line_user_id,
+                ).process_events(payload)
+                session.commit()
+            except Exception:
+                logger.exception("line webhook processing failed")
+                _reply_service_unavailable(line_client, payload)
+                session.rollback()
         logger.info("processed line webhook events", extra={"processed_count": processed})
         return JSONResponse({"ok": True, "processed": processed})
 
@@ -86,6 +92,22 @@ def _is_valid_signature(settings: Settings, body: bytes, signature: str) -> bool
     ).digest()
     expected = base64.b64encode(digest).decode("utf-8")
     return hmac.compare_digest(expected, signature)
+
+
+def _reply_service_unavailable(line_client: Any, payload: dict[str, Any]) -> None:
+    message = (
+        "現在、記録の保存処理で一時的なエラーが発生しています。"
+        "時間をおいてもう一度送ってください。"
+    )
+    for event in payload.get("events", []):
+        if event.get("type") != "message":
+            continue
+        reply_token = str(event.get("replyToken", ""))
+        if reply_token:
+            try:
+                line_client.reply_message(reply_token, message)
+            except Exception:
+                logging.getLogger(__name__).exception("failed to send error reply to LINE")
 
 
 app = create_app()
