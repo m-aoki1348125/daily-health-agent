@@ -1,7 +1,9 @@
 project_id                   = "your-project-id"
 region                       = "asia-northeast1"
 environment                  = "dev"
-db_tier                      = "db-custom-1-3840"
+db_tier                      = "db-f1-micro"
+db_disk_type                 = "PD_SSD"
+db_backup_enabled            = false
 artifact_registry_repository = "daily-health-agent"
 cloud_run_image              = "asia-northeast1-docker.pkg.dev/your-project-id/daily-health-agent/daily-health-agent:latest"
 timezone                     = "Asia/Tokyo"

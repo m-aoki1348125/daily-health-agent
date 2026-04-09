@@ -5,8 +5,9 @@ resource "google_sql_database_instance" "postgres" {
 
   settings {
     tier = var.db_tier
+    disk_type = var.db_disk_type
     backup_configuration {
-      enabled = true
+      enabled = var.db_backup_enabled
     }
     ip_configuration {
       ipv4_enabled = true

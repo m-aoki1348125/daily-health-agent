@@ -2,6 +2,14 @@ variable "project_id" { type = string }
 variable "region" { type = string }
 variable "environment" { type = string }
 variable "db_tier" { type = string }
+variable "db_disk_type" {
+  type    = string
+  default = "PD_SSD"
+}
+variable "db_backup_enabled" {
+  type    = bool
+  default = true
+}
 variable "artifact_registry_repository" { type = string }
 variable "cloud_run_image" { type = string }
 variable "timezone" { type = string }

@@ -138,6 +138,8 @@ module "cloud_sql" {
   name_prefix       = local.name_prefix
   region            = var.region
   db_tier           = var.db_tier
+  db_disk_type      = var.db_disk_type
+  db_backup_enabled = var.db_backup_enabled
   private_network   = var.private_network
   database_name     = "health_agent"
   database_user     = "health_agent"

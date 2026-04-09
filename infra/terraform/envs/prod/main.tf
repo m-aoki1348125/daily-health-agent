@@ -5,6 +5,8 @@ module "prod" {
   region                       = var.region
   environment                  = var.environment
   db_tier                      = var.db_tier
+  db_disk_type                 = var.db_disk_type
+  db_backup_enabled            = var.db_backup_enabled
   artifact_registry_repository = var.artifact_registry_repository
   cloud_run_image              = var.cloud_run_image
   timezone                     = var.timezone
