@@ -7,6 +7,7 @@ class FeatureBuilder:
     def build_daily_metrics(
         self,
         raw: FitbitDayRaw,
+        meal_calories: int | None = None,
         raw_drive_file_id: str | None = None,
     ) -> DailyMetricInput:
         return DailyMetricInput(
@@ -19,6 +20,7 @@ class FeatureBuilder:
             resting_hr=raw.resting_hr,
             steps=raw.activity.steps,
             calories=raw.activity.calories,
+            meal_calories=meal_calories,
             raw_drive_file_id=raw_drive_file_id,
             bedtime_start=raw.sleep.start_time,
         )

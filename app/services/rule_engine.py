@@ -41,6 +41,21 @@ class RuleEngine:
             reasons.append("insufficient recovery for activity")
             explanations.append("活動量に対して回復不足が見られます。")
 
+        if trends.meal_calories_vs_7d_avg is not None and (
+            trends.meal_calories_vs_7d_avg >= self.settings.meal_calorie_alert_delta
+        ):
+            reasons.append("meal intake above recent baseline")
+            explanations.append("食事摂取カロリーが直近7日平均より多めです。")
+
+        if (
+            metrics.meal_calories is not None
+            and metrics.calories > 0
+            and metrics.meal_calories - metrics.calories
+            >= self.settings.meal_calorie_balance_alert_delta
+        ):
+            reasons.append("meal intake exceeds activity burn")
+            explanations.append("食事摂取カロリーが推定消費カロリーを上回っています。")
+
         fallback_used = False
         if metrics.resting_hr is None:
             reasons.append("missing resting heart rate data")

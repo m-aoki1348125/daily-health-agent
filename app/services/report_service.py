@@ -23,6 +23,9 @@ class ReportService:
             "resting_hr": metrics.resting_hr,
             "sleep_vs_14d_avg": trend_context.current.sleep_vs_14d_avg,
             "resting_hr_vs_30d_avg": trend_context.current.resting_hr_vs_30d_avg,
+            "meal_calories": metrics.meal_calories,
+            "meal_calories_vs_7d_avg": trend_context.current.meal_calories_vs_7d_avg,
+            "fitbit_calories_burned": metrics.calories,
             "steps_yesterday": metrics.steps,
             "sleep_debt_streak_days": trend_context.current.sleep_debt_streak_days,
             "rule_status": rule_eval.risk_level,
@@ -57,6 +60,16 @@ class ReportService:
                         ["☀️ 活動リズム: 無理のない範囲で活動できています"]
                         if metrics.steps >= 6000
                         else ["⛅ 活動リズム: 軽い歩行で体を整えたい日です"]
+                    ),
+                    *(
+                        ["🌧️ 食事バランス: 摂取カロリーが最近より多めです"]
+                        if trend_context.current.meal_calories_vs_7d_avg is not None
+                        and trend_context.current.meal_calories_vs_7d_avg >= 400
+                        else (
+                            ["☀️ 食事バランス: 食事量は安定しています"]
+                            if metrics.meal_calories is not None
+                            else ["⛅ 食事バランス: 食事データを蓄積中です"]
+                        )
                     ),
                 ][:4],
                 today_actions=[
@@ -114,6 +127,7 @@ class ReportService:
 - Sleep: {metrics.sleep_minutes} minutes
 - Resting HR: {metrics.resting_hr}
 - Steps: {metrics.steps}
+- Meal calories: {metrics.meal_calories}
 - Recovery score: {trends.recovery_score}
 
 ## Rule Findings

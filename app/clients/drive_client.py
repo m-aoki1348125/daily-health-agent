@@ -39,6 +39,18 @@ class DriveClient(ABC):
     ) -> str:
         raise NotImplementedError
 
+    @abstractmethod
+    def store_bytes(
+        self,
+        *,
+        category: str,
+        target_date: date,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        raise NotImplementedError
+
 
 class LocalDriveClient(DriveClient):
     def __init__(self, root: str) -> None:
@@ -70,6 +82,21 @@ class LocalDriveClient(DriveClient):
         path.write_text(content, encoding="utf-8")
         return self._stable_file_id(path)
 
+    def store_bytes(
+        self,
+        *,
+        category: str,
+        target_date: date,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        del mime_type
+        path = self._path(category, target_date, filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return self._stable_file_id(path)
+
     def _path(self, category: str, target_date: date, filename: str) -> Path:
         year = target_date.strftime("%Y")
         year_month = target_date.strftime("%Y-%m")
@@ -83,6 +110,10 @@ class LocalDriveClient(DriveClient):
             return self.root / "HealthAgent" / "monthly_reports" / year / filename
         if category == "profile":
             return self.root / "HealthAgent" / "profile" / filename
+        if category == "meal_images":
+            return self.root / "HealthAgent" / "meal_images" / year / year_month / filename
+        if category == "meal_records":
+            return self.root / "HealthAgent" / "meal_records" / year / year_month / filename
         raise ValueError(f"unsupported category: {category}")
 
     @staticmethod
@@ -130,6 +161,23 @@ class GoogleDriveClient(DriveClient):
             mime_type="text/markdown",
         )
 
+    def store_bytes(
+        self,
+        *,
+        category: str,
+        target_date: date,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        parent_id = self._ensure_folder_path(category, target_date)
+        return self._upsert_file(
+            parent_id=parent_id,
+            filename=filename,
+            content=content,
+            mime_type=mime_type,
+        )
+
     def _build_credentials(self) -> Any:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
@@ -169,7 +217,7 @@ class GoogleDriveClient(DriveClient):
 
     def _ensure_folder_path(self, category: str, target_date: date) -> str:
         parts = ["HealthAgent", category]
-        if category in {"raw", "daily_reports"}:
+        if category in {"raw", "daily_reports", "meal_images", "meal_records"}:
             parts.extend([target_date.strftime("%Y"), target_date.strftime("%Y-%m")])
         elif category in {"weekly_reports", "monthly_reports"}:
             parts.append(target_date.strftime("%Y"))

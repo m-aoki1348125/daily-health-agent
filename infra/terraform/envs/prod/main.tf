@@ -16,4 +16,5 @@ module "prod" {
   llm_model_name               = var.llm_model_name
   private_network              = var.private_network
   db_password                  = var.db_password
+  line_webhook_path            = var.line_webhook_path
 }

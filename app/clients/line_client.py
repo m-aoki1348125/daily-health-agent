@@ -12,13 +12,29 @@ class LineClient(ABC):
     def push_message(self, user_id: str, text: str) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    def reply_message(self, reply_token: str, text: str) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def fetch_message_content(self, message_id: str) -> tuple[bytes, str]:
+        raise NotImplementedError
+
 
 class MockLineClient(LineClient):
     def __init__(self) -> None:
         self.sent_messages: list[tuple[str, str]] = []
+        self.replied_messages: list[tuple[str, str]] = []
+        self.message_contents: dict[str, tuple[bytes, str]] = {}
 
     def push_message(self, user_id: str, text: str) -> None:
         self.sent_messages.append((user_id, text))
+
+    def reply_message(self, reply_token: str, text: str) -> None:
+        self.replied_messages.append((reply_token, text))
+
+    def fetch_message_content(self, message_id: str) -> tuple[bytes, str]:
+        return self.message_contents[message_id]
 
 
 class LineMessagingApiClient(LineClient):
@@ -42,6 +58,34 @@ class LineMessagingApiClient(LineClient):
                 json=payload,
             )
             response.raise_for_status()
+
+    def reply_message(self, reply_token: str, text: str) -> None:
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "replyToken": reply_token,
+            "messages": [{"type": "text", "text": text}],
+        }
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            response = client.post(
+                "https://api.line.me/v2/bot/message/reply",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+
+    def fetch_message_content(self, message_id: str) -> tuple[bytes, str]:
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            response = client.get(
+                f"https://api-data.line.me/v2/bot/message/{message_id}/content",
+                headers=headers,
+            )
+            response.raise_for_status()
+        mime_type = response.headers.get("content-type", "image/jpeg")
+        return response.content, mime_type
 
 
 def build_line_client(settings: Settings) -> LineClient:

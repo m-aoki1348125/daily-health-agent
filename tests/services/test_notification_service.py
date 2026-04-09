@@ -14,6 +14,12 @@ class DummyLineClient(LineClient):
     def push_message(self, user_id: str, text: str) -> None:
         return None
 
+    def reply_message(self, reply_token: str, text: str) -> None:
+        return None
+
+    def fetch_message_content(self, message_id: str) -> tuple[bytes, str]:
+        return (b"", "image/jpeg")
+
 
 def test_notification_message_includes_fact_and_long_term_sections() -> None:
     service = NotificationService(DummyLineClient(), Settings())
@@ -30,11 +36,13 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
             resting_hr=58,
             steps=5257,
             calories=2100,
+            meal_calories=1450,
         ),
         trends=TrendFeatureInput(
             date=date(2026, 4, 1),
             sleep_vs_14d_avg=-15,
             resting_hr_vs_30d_avg=2,
+            meal_calories_vs_7d_avg=120,
             sleep_debt_streak_days=1,
             bedtime_drift_minutes=20,
             recovery_score=74,
@@ -76,6 +84,7 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
     assert "今日の体調" in message
     assert "今日のアドバイス" in message
     assert "中長期の分析" in message
+    assert "食事: 推定 1,450 kcal（7日平均より +120 kcal）" in message
     assert "- ☀️ 睡眠回復: 睡眠量は十分で回復感があります" in message
     assert "- ⛅ 心拍コンディション: 心拍は安定していますが少し慎重に見たいです" in message
     assert "- 平日は睡眠がやや短い" in message
@@ -98,11 +107,13 @@ def test_notification_message_shows_current_resting_hr_even_without_delta() -> N
             resting_hr=58,
             steps=5257,
             calories=2100,
+            meal_calories=900,
         ),
         trends=TrendFeatureInput(
             date=date(2026, 4, 1),
             sleep_vs_14d_avg=None,
             resting_hr_vs_30d_avg=None,
+            meal_calories_vs_7d_avg=None,
             sleep_debt_streak_days=0,
             bedtime_drift_minutes=None,
             recovery_score=80,
@@ -126,6 +137,7 @@ def test_notification_message_shows_current_resting_hr_even_without_delta() -> N
     message = service.build_message(report)
 
     assert "安静時心拍: 58 bpm（30日平均との差分は未算出）" in message
+    assert "食事: 推定 900 kcal（比較データを蓄積中）" in message
     assert "- ⛅ 睡眠は確保できています" in message
 
 
@@ -144,11 +156,13 @@ def test_notification_message_marks_rule_based_fallback() -> None:
             resting_hr=57,
             steps=7000,
             calories=2100,
+            meal_calories=1200,
         ),
         trends=TrendFeatureInput(
             date=date(2026, 4, 1),
             sleep_vs_14d_avg=10,
             resting_hr_vs_30d_avg=-1,
+            meal_calories_vs_7d_avg=80,
             sleep_debt_streak_days=0,
             bedtime_drift_minutes=None,
             recovery_score=82,

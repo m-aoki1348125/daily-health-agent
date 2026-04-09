@@ -42,7 +42,10 @@ class Settings(BaseSettings):
 
     line_client_mode: Literal["mock", "api"] = "mock"
     line_channel_access_token: str | None = None
+    line_channel_secret: str | None = None
     line_user_id: str = "mock-user"
+    line_webhook_path: str = "/line/webhook"
+    line_webhook_port: int = 8080
 
     llm_provider: Literal["mock", "openai", "claude"] = "mock"
     llm_model_name: str = "gpt-4.1-mini"
@@ -59,6 +62,8 @@ class Settings(BaseSettings):
     recovery_score_red_threshold: int = 35
 
     request_timeout_seconds: int = Field(default=30, ge=1)
+    meal_calorie_alert_delta: int = 400
+    meal_calorie_balance_alert_delta: int = 300
 
 
 @lru_cache(maxsize=1)

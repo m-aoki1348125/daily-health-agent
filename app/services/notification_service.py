@@ -46,7 +46,8 @@ class NotificationService:
             f"睡眠: {sleep_hours}時間{sleep_minutes:02d}分"
             f"（14日平均より {sleep_delta}）\n"
             f"安静時心拍: {resting_hr_text}\n"
-            f"前日歩数: {report.metrics.steps:,}歩\n\n"
+            f"前日歩数: {report.metrics.steps:,}歩\n"
+            f"食事: {self._build_meal_text(report)}\n\n"
             f"今日の体調\n{body_condition_lines}\n\n"
             f"今日のアドバイス\n{today_actions}\n\n"
             f"中長期の分析\n{long_term_lines}\n\n"
@@ -115,10 +116,27 @@ class NotificationService:
             activity_icon = "🌧️"
             activity_text = "活動量は少なめなので、軽い歩行で整えたい日です"
 
+        meal_icon = "⛅"
+        meal_text = "食事データを蓄積中です"
+        if metrics.meal_calories is not None:
+            if trends.meal_calories_vs_7d_avg is not None and trends.meal_calories_vs_7d_avg >= 400:
+                meal_icon = "🌧️"
+                meal_text = "食事量は最近より多めで、調整余地があります"
+            elif (
+                trends.meal_calories_vs_7d_avg is not None
+                and trends.meal_calories_vs_7d_avg <= -200
+            ):
+                meal_icon = "☀️"
+                meal_text = "食事量は最近の流れの中で安定しています"
+            else:
+                meal_icon = "⛅"
+                meal_text = "食事量は大きく崩れていません"
+
         return [
             f"- {sleep_icon} 睡眠回復: {sleep_text}",
             f"- {hr_icon} 心拍コンディション: {hr_text}",
             f"- {activity_icon} 活動リズム: {activity_text}",
+            f"- {meal_icon} 食事バランス: {meal_text}",
         ]
 
     @staticmethod
@@ -130,6 +148,16 @@ class NotificationService:
         if delta is None:
             return f"{current} bpm（30日平均との差分は未算出）"
         return f"{current} bpm（30日平均より {delta:+.0f} bpm）"
+
+    @staticmethod
+    def _build_meal_text(report: DailyReport) -> str:
+        meal_calories = report.metrics.meal_calories
+        meal_delta = report.trends.meal_calories_vs_7d_avg
+        if meal_calories is None:
+            return "未記録"
+        if meal_delta is None:
+            return f"推定 {meal_calories:,} kcal（比較データを蓄積中）"
+        return f"推定 {meal_calories:,} kcal（7日平均より {meal_delta:+.0f} kcal）"
 
     def send(self, report: DailyReport) -> str:
         message = self.build_message(report)

@@ -38,6 +38,7 @@ class DailyMetricInput(BaseModel):
     resting_hr: int | None
     steps: int
     calories: int
+    meal_calories: int | None = None
     raw_drive_file_id: str | None = None
     bedtime_start: str | None = None
 
@@ -46,6 +47,7 @@ class TrendFeatureInput(BaseModel):
     date: date
     sleep_vs_14d_avg: float | None = None
     resting_hr_vs_30d_avg: float | None = None
+    meal_calories_vs_7d_avg: float | None = None
     sleep_debt_streak_days: int = 0
     bedtime_drift_minutes: float | None = None
     recovery_score: int = 50

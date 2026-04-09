@@ -7,6 +7,7 @@ from app.clients.llm_claude import ClaudeProvider
 from app.clients.llm_openai import OpenAIProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
+from app.schemas.meal_estimate import MealEstimateResult
 
 
 class MockLLMProvider(LLMProvider):
@@ -31,6 +32,24 @@ class MockLLMProvider(LLMProvider):
             caffeine_advice="カフェインは14時までを目安にしてください。",
             medical_note="不調が数日続く場合や症状が強い場合は医療機関に相談してください。",
             long_term_comment="平日の睡眠不足が続く兆候があるため、就寝リズムを一定に保つ工夫が有効です。",
+            provider="mock",
+            model_name=self.model_name,
+        )
+
+    def estimate_meal(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+    ) -> MealEstimateResult:
+        del prompt, image_bytes, mime_type
+        return MealEstimateResult(
+            estimated_calories=650,
+            confidence="medium",
+            summary="主食と主菜、副菜が含まれる定食スタイルの食事と推定しました。",
+            meal_items=["ごはん", "肉料理", "サラダ"],
+            rationale="画像内に主食とたんぱく質源、野菜が確認できるため中程度の食事量と推定しました。",
             provider="mock",
             model_name=self.model_name,
         )

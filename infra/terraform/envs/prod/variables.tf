@@ -13,3 +13,7 @@ variable "llm_provider" { type = string }
 variable "llm_model_name" { type = string }
 variable "private_network" { type = string }
 variable "db_password" { type = string }
+variable "line_webhook_path" {
+  type    = string
+  default = "/line/webhook"
+}

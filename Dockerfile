@@ -13,4 +13,5 @@ COPY alembic ./alembic
 RUN python -m pip install --upgrade pip && \
     python -m pip install .
 
-ENTRYPOINT ["python", "-m", "app.batch.run_daily_job"]
+ENTRYPOINT ["python"]
+CMD ["-m", "app.batch.run_daily_job"]

@@ -33,6 +33,7 @@ class MetricsRepository:
         entity.resting_hr = metric.resting_hr
         entity.steps = metric.steps
         entity.calories = metric.calories
+        entity.meal_calories = metric.meal_calories
         entity.raw_drive_file_id = metric.raw_drive_file_id
         entity.bedtime_start = bedtime_start
 
@@ -43,6 +44,7 @@ class MetricsRepository:
             self.session.add(entity)
         entity.sleep_vs_14d_avg = trend.sleep_vs_14d_avg
         entity.resting_hr_vs_30d_avg = trend.resting_hr_vs_30d_avg
+        entity.meal_calories_vs_7d_avg = trend.meal_calories_vs_7d_avg
         entity.sleep_debt_streak_days = trend.sleep_debt_streak_days
         entity.bedtime_drift_minutes = trend.bedtime_drift_minutes
         entity.recovery_score = trend.recovery_score

@@ -15,6 +15,7 @@ class TrendAnalyzer:
     def build(self, current: DailyMetricInput, history: list[DailyMetric]) -> TrendContext:
         sleep_window = [m.sleep_minutes for m in history[:14] if m.sleep_minutes is not None]
         hr_window = [m.resting_hr for m in history[:30] if m.resting_hr is not None]
+        meal_window = [m.meal_calories for m in history[:7] if m.meal_calories is not None]
         bedtime_window = [
             bedtime
             for bedtime in (
@@ -29,6 +30,11 @@ class TrendAnalyzer:
         resting_hr_vs_30d_avg = (
             current.resting_hr - mean(hr_window)
             if hr_window and current.resting_hr is not None
+            else None
+        )
+        meal_calories_vs_7d_avg = (
+            current.meal_calories - mean(meal_window)
+            if meal_window and current.meal_calories is not None
             else None
         )
         bedtime_drift = None
@@ -46,12 +52,19 @@ class TrendAnalyzer:
             monthly_trends.append("就寝時刻が後ろ倒し傾向です")
         if current.steps >= 8000 and recovery_score < self.settings.recovery_score_yellow_threshold:
             weekly_trends.append("活動量に対して回復が追いついていません")
+        if meal_calories_vs_7d_avg is not None and meal_calories_vs_7d_avg > 0:
+            weekly_trends.append("最近1週間より食事量がやや多めです")
+        if current.meal_calories is not None and current.calories > 0:
+            calorie_balance = current.meal_calories - current.calories
+            if calorie_balance > self.settings.meal_calorie_balance_alert_delta:
+                monthly_trends.append("食事摂取カロリーが消費カロリーを上回る日があります")
 
         return TrendContext(
             current=TrendFeatureInput(
                 date=current.date,
                 sleep_vs_14d_avg=sleep_vs_14d_avg,
                 resting_hr_vs_30d_avg=resting_hr_vs_30d_avg,
+                meal_calories_vs_7d_avg=meal_calories_vs_7d_avg,
                 sleep_debt_streak_days=streak,
                 bedtime_drift_minutes=bedtime_drift,
                 recovery_score=recovery_score,
@@ -69,6 +82,7 @@ class TrendAnalyzer:
                     resting_hr=m.resting_hr,
                     steps=m.steps or 0,
                     calories=m.calories or 0,
+                    meal_calories=m.meal_calories,
                     raw_drive_file_id=m.raw_drive_file_id,
                     bedtime_start=m.bedtime_start,
                 )

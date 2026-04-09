@@ -16,6 +16,7 @@ from app.db.base import Base
 from app.db.session import create_engine_from_settings, create_session_factory
 from app.repositories.advice_repository import AdviceRepository
 from app.repositories.drive_index_repository import DriveIndexRepository
+from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.services.feature_builder import FeatureBuilder
 from app.services.history_bootstrap_service import HistoryBootstrapService
@@ -51,6 +52,7 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
     metrics_repo = MetricsRepository(session)
     advice_repo = AdviceRepository(session)
     drive_index_repo = DriveIndexRepository(session)
+    meal_repo = MealRepository(session)
     history_bootstrap_service = HistoryBootstrapService(
         settings=settings,
         fitbit_client=fitbit_client,
@@ -69,7 +71,12 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
         category="raw", target_date=target_date, filename=raw_filename, payload=raw.raw_payload
     )
 
-    metrics = feature_builder.build_daily_metrics(raw, raw_drive_file_id=raw_file_id)
+    meal_calories = meal_repo.sum_calories_for_date(target_date)
+    metrics = feature_builder.build_daily_metrics(
+        raw,
+        meal_calories=meal_calories or None,
+        raw_drive_file_id=raw_file_id,
+    )
     metrics_repo.upsert_daily_metric(metrics, bedtime_start=metrics.bedtime_start)
     drive_index_repo.upsert_for_date(target_date, raw_file_id=raw_file_id)
     metrics_repo.flush()

@@ -8,6 +8,7 @@ PROJECT_ID="${PROJECT_ID:-daily-health-agent}"
 : "${FITBIT_CLIENT_SECRET:?Set FITBIT_CLIENT_SECRET}"
 : "${FITBIT_REFRESH_TOKEN:?Set FITBIT_REFRESH_TOKEN}"
 : "${LINE_CHANNEL_ACCESS_TOKEN:?Set LINE_CHANNEL_ACCESS_TOKEN}"
+: "${LINE_CHANNEL_SECRET:?Set LINE_CHANNEL_SECRET}"
 : "${DB_PASSWORD:?Set DB_PASSWORD}"
 : "${DRIVE_ROOT_FOLDER_ID:?Set DRIVE_ROOT_FOLDER_ID}"
 : "${DRIVE_OAUTH_CLIENT_ID:?Set DRIVE_OAUTH_CLIENT_ID}"
@@ -37,6 +38,8 @@ if [[ -n "${CLAUDE_API_KEY}" ]]; then
     --data-file=- --project "${PROJECT_ID}"
 fi
 printf '%s' "${LINE_CHANNEL_ACCESS_TOKEN}" | gcloud secrets versions add line-channel-access-token \
+  --data-file=- --project "${PROJECT_ID}"
+printf '%s' "${LINE_CHANNEL_SECRET}" | gcloud secrets versions add line-channel-secret \
   --data-file=- --project "${PROJECT_ID}"
 printf '%s' "${DB_PASSWORD}" | gcloud secrets versions add db-password \
   --data-file=- --project "${PROJECT_ID}"

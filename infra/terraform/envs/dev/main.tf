@@ -22,6 +22,7 @@ locals {
     "openai-api-key",
     "claude-api-key",
     "line-channel-access-token",
+    "line-channel-secret",
     "db-password",
     "drive-root-folder-id",
     "drive-oauth-client-id",
@@ -46,11 +47,46 @@ locals {
     OPENAI_API_KEY            = { secret = "openai-api-key", version = "latest" }
     CLAUDE_API_KEY            = { secret = "claude-api-key", version = "latest" }
     LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
+    LINE_CHANNEL_SECRET       = { secret = "line-channel-secret", version = "latest" }
     DRIVE_ROOT_FOLDER_ID      = { secret = "drive-root-folder-id", version = "latest" }
     DRIVE_OAUTH_CLIENT_ID     = { secret = "drive-oauth-client-id", version = "latest" }
     DRIVE_OAUTH_CLIENT_SECRET = { secret = "drive-oauth-client-secret", version = "latest" }
     DRIVE_OAUTH_REFRESH_TOKEN = { secret = "drive-oauth-refresh-token", version = "latest" }
   }
+  webhook_plain_env = {
+    APP_ENV            = var.environment
+    TIMEZONE           = var.timezone
+    GOOGLE_DRIVE_MODE  = "api"
+    LINE_CLIENT_MODE   = "api"
+    LINE_USER_ID       = var.line_user_id
+    LLM_PROVIDER       = var.llm_provider
+    LLM_MODEL_NAME     = var.llm_model_name
+    LINE_WEBHOOK_PATH  = var.line_webhook_path
+    DATABASE_URL       = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
+  }
+  webhook_secret_env = {
+    OPENAI_API_KEY            = { secret = "openai-api-key", version = "latest" }
+    CLAUDE_API_KEY            = { secret = "claude-api-key", version = "latest" }
+    LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
+    LINE_CHANNEL_SECRET       = { secret = "line-channel-secret", version = "latest" }
+    DRIVE_ROOT_FOLDER_ID      = { secret = "drive-root-folder-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_ID     = { secret = "drive-oauth-client-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_SECRET = { secret = "drive-oauth-client-secret", version = "latest" }
+    DRIVE_OAUTH_REFRESH_TOKEN = { secret = "drive-oauth-refresh-token", version = "latest" }
+  }
+  webhook_env_list = [for key, value in local.webhook_plain_env : {
+    name  = key
+    value = value
+  }]
+  webhook_secret_env_list = [for key, value in local.webhook_secret_env : {
+    name = key
+    value_source = {
+      secret_key_ref = {
+        secret  = value.secret
+        version = value.version
+      }
+    }
+  }]
 }
 
 resource "google_project_service" "services" {
@@ -155,6 +191,77 @@ module "monthly_job" {
   memory                = "512Mi"
   timeout_seconds       = 900
   max_retries           = 0
+}
+
+resource "google_cloud_run_v2_service" "line_webhook" {
+  name     = "${local.name_prefix}-line-webhook"
+  location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = module.service_accounts.job_service_account_email
+    timeout         = "300s"
+
+    containers {
+      image   = var.cloud_run_image
+      command = ["python"]
+      args = [
+        "-m",
+        "uvicorn",
+        "app.web.line_webhook:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+      ]
+
+      dynamic "env" {
+        for_each = concat(local.webhook_env_list, local.webhook_secret_env_list)
+        content {
+          name = env.value.name
+
+          dynamic "value_source" {
+            for_each = try([env.value.value_source], [])
+            content {
+              secret_key_ref {
+                secret  = value_source.value.secret_key_ref.secret
+                version = value_source.value.secret_key_ref.version
+              }
+            }
+          }
+
+          value = try(env.value.value, null)
+        }
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [module.cloud_sql.instance_connection_name]
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "line_webhook_public" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.line_webhook.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 data "google_project" "current" {

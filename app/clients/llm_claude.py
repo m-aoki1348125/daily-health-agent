@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from base64 import b64encode
 from typing import Any, cast
 
 import httpx
@@ -9,6 +10,7 @@ import httpx
 from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
+from app.schemas.meal_estimate import MealEstimateResult
 
 
 class ClaudeProvider(LLMProvider):
@@ -44,6 +46,50 @@ class ClaudeProvider(LLMProvider):
         data["provider"] = "claude"
         data["model_name"] = model_name
         return AdviceResult.model_validate(data)
+
+    def estimate_meal(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+    ) -> MealEstimateResult:
+        model_name = self._resolve_model_name()
+        content_blocks = cast(
+            Any,
+            [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": b64encode(image_bytes).decode("utf-8"),
+                    },
+                },
+            ],
+        )
+        message = self.client.messages.create(
+            model=model_name,
+            max_tokens=700,
+            system=_meal_system_prompt(),
+            messages=[
+                {
+                    "role": "user",
+                    "content": content_blocks,
+                }
+            ],
+        )
+        text_blocks = [
+            cast(str, block.text)
+            for block in message.content
+            if hasattr(block, "text") and block.text is not None
+        ]
+        content = "".join(text_blocks)
+        data = _parse_json_object(content)
+        data["provider"] = "claude"
+        data["model_name"] = model_name
+        return MealEstimateResult.model_validate(data)
 
     def _resolve_model_name(self) -> str:
         preferred = self.model_name
@@ -130,13 +176,27 @@ def _system_prompt() -> str:
         "一言の見立てを書いてください。"
         "key_findings は 2〜4 件にしてください。"
         "数値は必ず入力値をそのまま使い、割合やパーセントへ勝手に変換しないでください。"
-        "睡眠は時間と分、心拍は bpm、歩数は歩で表現してください。"
+        "睡眠は時間と分、心拍は bpm、歩数は歩、食事は kcal で表現してください。"
+        "meal_calories と meal_calories_vs_7d_avg がある場合は、"
+        "食事量の増減や活動量とのバランスも今日の見立てと助言に反映してください。"
         "today_actions は今日すぐ実行できる控えめで具体的な行動提案にしてください。"
         "long_term_comment は weekly_trends、monthly_trends、過去パターンを踏まえた"
         "中長期の分析コメントにしてください。"
         "厳密な JSON のみを返し、キーは "
         "risk_level, summary, key_findings, today_actions, exercise_advice, sleep_advice, "
         "caffeine_advice, medical_note, long_term_comment のみを含めてください。"
+    )
+
+
+def _meal_system_prompt() -> str:
+    return (
+        "あなたは食事写真を見て推定摂取カロリーを算出する栄養ログ補助AIです。"
+        "医師ではありません。食事画像だけから保守的に見積もってください。"
+        "見えない情報は断定せず、一般的な一人前を前提に推定してください。"
+        "厳密なJSONのみを返してください。"
+        "キーは estimated_calories, confidence, summary, meal_items, rationale のみです。"
+        "estimated_calories は整数kcal、confidence は low/medium/high のいずれか、"
+        "summary と rationale は自然な日本語、meal_items は日本語の短い配列にしてください。"
     )
 
 
