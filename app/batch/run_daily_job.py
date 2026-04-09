@@ -70,6 +70,8 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
         category="raw", target_date=target_date, filename=raw_filename, payload=raw.raw_payload
     )
 
+    meals = meal_repo.list_for_date(target_date)
+    recent_meal_daily_totals = meal_repo.list_recent_daily_totals(target_date, limit=7)
     meal_calories = meal_repo.sum_calories_for_date(target_date)
     metrics = feature_builder.build_daily_metrics(
         raw,
@@ -85,8 +87,20 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
     metrics_repo.upsert_trend_feature(trend_context.current)
 
     rule_eval = rule_engine.evaluate(metrics, trend_context.current)
-    advice = report_service.build_advice(metrics, trend_context, rule_eval)
-    report = report_service.build_report(metrics, trend_context, rule_eval, advice, raw_file_id)
+    meal_summary = report_service.build_meal_summary(
+        meals=meals,
+        recent_daily_totals=recent_meal_daily_totals,
+        meal_calorie_delta=trend_context.current.meal_calories_vs_7d_avg,
+    )
+    advice = report_service.build_advice(metrics, trend_context, rule_eval, meal_summary)
+    report = report_service.build_report(
+        metrics,
+        trend_context,
+        rule_eval,
+        advice,
+        meal_summary,
+        raw_file_id,
+    )
 
     report_json_id = drive_client.store_json(
         category="daily_reports",

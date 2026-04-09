@@ -29,7 +29,16 @@ class OpenAIProvider(LLMProvider):
             ],
             text={"format": {"type": "json_object"}},
         )
-        content = response.output_text
+        content = response.output_text.strip()
+        if content.startswith("```"):
+            lines = content.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+            if content.startswith("json"):
+                content = content[4:].strip()
         data = json.loads(content)
         data["provider"] = "openai"
         data["model_name"] = self.model_name
@@ -87,8 +96,10 @@ def _system_prompt() -> str:
         "key_findings は 2〜4 件にしてください。"
         "数値は必ず入力値をそのまま使い、割合やパーセントへ勝手に変換しないでください。"
         "睡眠は時間と分、心拍は bpm、歩数は歩、食事は kcal で表現してください。"
-        "meal_calories と meal_calories_vs_7d_avg がある場合は、"
-        "食事量の増減や活動量とのバランスも今日の見立てと助言に反映してください。"
+        "meal_calories、meal_count、average_meal_calories、largest_meal_calories、meal_entries、"
+        "meal_trends、meal_calories_vs_7d_avg がある場合は、"
+        "一日の合計摂取量だけでなく、食事回数、1回ごとの量、最も重い食事、最近の傾向も"
+        "今日の見立てと助言に反映してください。"
         "today_actions は今日すぐ実行できる控えめで具体的な行動提案にしてください。"
         "long_term_comment は weekly_trends、monthly_trends、過去パターンを踏まえた"
         "中長期の分析コメントにしてください。"

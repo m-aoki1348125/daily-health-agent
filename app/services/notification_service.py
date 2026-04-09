@@ -32,6 +32,7 @@ class NotificationService:
         long_term_items = [
             *(str(item) for item in weekly_trends[:2]),
             *(str(item) for item in monthly_trends[:1]),
+            *(str(item) for item in report.meal_summary.trend_notes[:2]),
             advice.long_term_comment,
         ]
         long_term_lines = "\n".join(f"- {item}" for item in long_term_items if item)
@@ -153,11 +154,12 @@ class NotificationService:
     def _build_meal_text(report: DailyReport) -> str:
         meal_calories = report.metrics.meal_calories
         meal_delta = report.trends.meal_calories_vs_7d_avg
+        meal_count = report.meal_summary.meal_count
         if meal_calories is None:
             return "未記録"
         if meal_delta is None:
-            return f"推定 {meal_calories:,} kcal（比較データを蓄積中）"
-        return f"推定 {meal_calories:,} kcal（7日平均より {meal_delta:+.0f} kcal）"
+            return f"{meal_count}回 / 推定 {meal_calories:,} kcal（比較データを蓄積中）"
+        return f"{meal_count}回 / 推定 {meal_calories:,} kcal（7日平均より {meal_delta:+.0f} kcal）"
 
     def send(self, report: DailyReport) -> str:
         message = self.build_message(report)

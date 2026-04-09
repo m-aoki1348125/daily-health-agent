@@ -66,3 +66,17 @@ class MealRepository:
             .limit(limit)
         )
         return list(self.session.scalars(stmt))
+
+    def list_recent_daily_totals(self, until_date: date, limit: int = 7) -> list[int]:
+        stmt = (
+            select(
+                MealRecord.meal_date,
+                func.coalesce(func.sum(MealRecord.estimated_calories), 0).label("total_calories"),
+            )
+            .where(MealRecord.meal_date < until_date)
+            .group_by(MealRecord.meal_date)
+            .order_by(MealRecord.meal_date.desc())
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [int(row.total_calories or 0) for row in rows]
