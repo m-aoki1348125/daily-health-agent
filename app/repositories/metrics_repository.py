@@ -74,3 +74,11 @@ class MetricsRepository:
             return None
         entity.sleep_minutes = sleep_minutes
         return entity
+
+    def upsert_sleep_minutes(self, metric_date: date, sleep_minutes: int) -> DailyMetric:
+        entity = self.get_daily_metric(metric_date)
+        if entity is None:
+            entity = DailyMetric(date=metric_date)
+            self.session.add(entity)
+        entity.sleep_minutes = sleep_minutes
+        return entity

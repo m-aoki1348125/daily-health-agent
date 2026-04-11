@@ -49,10 +49,14 @@ class HealthChatService:
         if "削除" in normalized and ("食事" in normalized or "写真" in normalized):
             return self._delete_latest_meal(line_user_id=line_user_id, target_date=target_date)
 
-        if "睡眠" in normalized and any(word in normalized for word in ["修正", "訂正", "変更"]):
+        if self._looks_like_sleep_correction(normalized):
             corrected_minutes = self._parse_sleep_minutes(normalized)
             if corrected_minutes is None:
-                return "睡眠時間の修正は『昨日の睡眠時間を8時間10分に修正』のように送ってください。"
+                return (
+                    "睡眠時間の修正や再登録は"
+                    "『昨日の睡眠時間を8時間10分に修正』"
+                    "『昨日は7時間睡眠で記録し直してください』のように送ってください。"
+                )
             return self._correct_sleep_duration(
                 target_date=target_date,
                 sleep_minutes=corrected_minutes,
@@ -129,10 +133,8 @@ class HealthChatService:
 
     def _correct_sleep_duration(self, *, target_date: date, sleep_minutes: int) -> str:
         metric = self.metrics_repository.get_daily_metric(target_date)
-        if metric is None:
-            return f"{target_date.isoformat()} の睡眠記録が見つからないため修正できませんでした。"
-        original_minutes = metric.sleep_minutes or 0
-        self.metrics_repository.update_sleep_minutes(target_date, sleep_minutes)
+        original_minutes = metric.sleep_minutes if metric is not None else None
+        self.metrics_repository.upsert_sleep_minutes(target_date, sleep_minutes)
         self.metrics_repository.flush()
         self.drive_client.store_json(
             category="corrections",
@@ -144,13 +146,19 @@ class HealthChatService:
                 "date": target_date.isoformat(),
                 "before_sleep_minutes": original_minutes,
                 "after_sleep_minutes": sleep_minutes,
-                "reason": "line user requested correction",
+                "reason": "line user requested correction or manual registration",
             },
         )
+        if original_minutes is None:
+            return (
+                f"{target_date.isoformat()} の睡眠時間を "
+                f"{self._format_minutes(sleep_minutes)} で新規登録しました。\n"
+                "DB と Drive の補正ログに反映し、今後のトレンド分析とアドバイスに使います。"
+            )
         return (
             f"{target_date.isoformat()} の睡眠時間を "
             f"{self._format_minutes(sleep_minutes)} に修正しました。\n"
-            "今後のトレンド分析とアドバイスに反映します。"
+            "DB と Drive の補正ログに反映し、今後のトレンド分析とアドバイスに使います。"
         )
 
     def _correct_meal_calories(
@@ -461,6 +469,23 @@ class HealthChatService:
     @staticmethod
     def _looks_like_meal_selection(text: str) -> bool:
         return "番" in text and any(word in text for word in ["修正", "訂正", "変更", "直して"])
+
+    @staticmethod
+    def _looks_like_sleep_correction(text: str) -> bool:
+        if "睡眠" not in text:
+            return False
+        correction_words = [
+            "修正",
+            "訂正",
+            "変更",
+            "直して",
+            "記録し直",
+            "登録し直",
+            "再登録",
+            "上書き",
+            "更新",
+        ]
+        return any(word in text for word in correction_words)
 
     @staticmethod
     def _looks_like_meal_correction(text: str) -> bool:

@@ -126,6 +126,65 @@ def test_health_chat_service_corrects_sleep(
     assert "8時間00分" in message
 
 
+def test_health_chat_service_corrects_sleep_with_richer_phrasing(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    session.add(
+        DailyMetric(
+            date=date(2026, 4, 10),
+            sleep_minutes=85,
+            sleep_efficiency=0.8,
+            deep_sleep_minutes=10,
+            rem_sleep_minutes=15,
+            awakenings=3,
+            resting_hr=62,
+            steps=8553,
+            calories=1900,
+            meal_calories=0,
+        )
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="昨日は睡眠トラッカー付け忘れていました。7時間睡眠で記録し直してください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 11, 11, 21, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    metric = MetricsRepository(session).get_daily_metric(date(2026, 4, 10))
+    assert metric is not None
+    assert metric.sleep_minutes == 420
+    assert "7時間00分" in message
+    assert "Drive" in message
+
+
+def test_health_chat_service_registers_sleep_when_missing(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="昨日は8時間睡眠で再登録してください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    metric = MetricsRepository(session).get_daily_metric(date(2026, 4, 1))
+    assert metric is not None
+    assert metric.sleep_minutes == 480
+    assert "新規登録" in message
+
+
 def test_health_chat_service_reports_meal_counts(
     session: Session,
     settings: Settings,
