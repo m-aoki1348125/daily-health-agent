@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     meal_reminder_min_calories: int = Field(default=900, ge=0, le=5000)
     meal_timing_hint_ttl_minutes: int = Field(default=180, ge=5, le=1440)
     meal_post_image_timing_ttl_minutes: int = Field(default=120, ge=5, le=1440)
+    meal_day_rollover_hour: int = Field(default=5, ge=0, le=11)
 
 
 @lru_cache(maxsize=1)

@@ -16,6 +16,7 @@ from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
 from app.schemas.meal_estimate import MealRecordInput, MealTextParseResult, ParsedMealEntry
 from app.services.meal_logging_service import MealLoggingService
+from app.services.meal_time_service import format_meal_service_time, resolve_meal_service_date
 
 
 @dataclass
@@ -365,26 +366,37 @@ class HealthChatService:
                 "『18:30ごろ食べた』『朝7時ごろです』のように送ってください。"
             )
 
-        self.meal_repository.update_consumed_at(meal, consumed_at)
+        meal_date = resolve_meal_service_date(
+            consumed_at,
+            timezone=self.settings.timezone,
+            rollover_hour=self.settings.meal_day_rollover_hour,
+        )
+        self.meal_repository.update_consumed_at(meal, consumed_at, meal_date)
         self.meal_repository.flush()
-        self.meal_logging_service.store_daily_summary(meal.meal_date)
+        self.meal_logging_service.store_daily_summary(meal_date)
         self.line_state_repository.clear(line_user_id)
         self.drive_client.store_json(
             category="corrections",
-            target_date=meal.meal_date,
-            filename=f"{meal.meal_date.isoformat()}_{meal.source_message_id}_meal_time_correction.json",
+            target_date=meal_date,
+            filename=f"{meal_date.isoformat()}_{meal.source_message_id}_meal_time_correction.json",
             payload={
                 "action": "correct_meal_time",
                 "corrected_at": datetime.now(ZoneInfo(self.settings.timezone)).isoformat(),
                 "meal_id": meal.id,
                 "source_message_id": meal.source_message_id,
+                "meal_date": meal_date.isoformat(),
                 "consumed_at": consumed_at.isoformat(),
                 "summary": meal.summary,
             },
         )
+        time_text = format_meal_service_time(
+            consumed_at,
+            timezone=self.settings.timezone,
+            rollover_hour=self.settings.meal_day_rollover_hour,
+        )
         return (
-            f"{meal.meal_date.isoformat()} の食事時刻を "
-            f"{consumed_at.strftime('%H:%M')} ごろに更新しました。\n"
+            f"{meal_date.isoformat()} の食事時刻を "
+            f"{time_text} ごろに更新しました。\n"
             "今後の食事回数集計と健康アドバイスに反映します。"
         )
 
@@ -447,9 +459,15 @@ class HealthChatService:
                 fallback=event_time,
                 index=idx,
             )
+            meal_date = resolve_meal_service_date(
+                consumed_at,
+                timezone=self.settings.timezone,
+                rollover_hour=self.settings.meal_day_rollover_hour,
+            )
             synthetic_id = f"text-{line_user_id}-{event_time.strftime('%Y%m%d%H%M%S%f')}-{idx}"
             payload = {
                 "source": "line_text",
+                "meal_date": meal_date.isoformat(),
                 "original_text": text,
                 "consumed_at": consumed_at.isoformat(),
                 "summary": entry.summary,
@@ -469,6 +487,7 @@ class HealthChatService:
                 MealRecordInput(
                     source_message_id=synthetic_id,
                     line_user_id=line_user_id,
+                    meal_date=meal_date,
                     consumed_at=consumed_at,
                     image_mime_type="text/plain",
                     estimated_calories=entry.estimated_calories,
@@ -492,8 +511,10 @@ class HealthChatService:
         total = self.meal_repository.sum_calories_for_date(target_date)
         lines = [f"{target_date.isoformat()} の食事を {len(saved_meals)} 件追加登録しました。"]
         for meal in saved_meals:
-            time_label = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone)).strftime(
-                "%H:%M"
+            time_label = format_meal_service_time(
+                meal.consumed_at,
+                timezone=self.settings.timezone,
+                rollover_hour=self.settings.meal_day_rollover_hour,
             )
             lines.append(
                 f"- {time_label} {meal.summary} / {meal.estimated_calories} kcal"
@@ -580,8 +601,10 @@ class HealthChatService:
             },
             "meals": [
                 {
-                    "time": meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone)).strftime(
-                        "%H:%M"
+                    "time": format_meal_service_time(
+                        meal.consumed_at,
+                        timezone=self.settings.timezone,
+                        rollover_hour=self.settings.meal_day_rollover_hour,
                     ),
                     "estimated_calories": meal.estimated_calories,
                     "summary": meal.summary,
@@ -781,8 +804,12 @@ class HealthChatService:
         return f"{hours}時間{minutes:02d}分"
 
     def _format_meal_label(self, meal: MealRecord) -> str:
-        local_dt = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone))
-        return f"{local_dt.strftime('%H:%M')}頃の食事"
+        time_text = format_meal_service_time(
+            meal.consumed_at,
+            timezone=self.settings.timezone,
+            rollover_hour=self.settings.meal_day_rollover_hour,
+        )
+        return f"{time_text}頃の食事"
 
     def _parse_consumed_at_hint(self, text: str, *, target_date: date) -> datetime | None:
         explicit = re.search(r"(\d{1,2})\s*[:時]\s*(\d{1,2})?", text)

@@ -238,6 +238,40 @@ def test_health_chat_service_reports_meal_counts(
     assert "1000 kcal" in message
 
 
+def test_health_chat_service_formats_post_midnight_meal_as_26_oclock(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    session.add(
+        MealRecord(
+            source_message_id="meal-msg-26",
+            meal_date=date(2026, 4, 1),
+            consumed_at=datetime(2026, 4, 2, 2, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+            line_user_id="U-test",
+            image_mime_type="image/jpeg",
+            estimated_calories=300,
+            confidence="medium",
+            summary="夜食です。",
+            meal_items_json=["サンドイッチ"],
+            rationale="推定",
+            provider="mock",
+            model_name="mock",
+        )
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="昨日の食事回数と摂取カロリーを教えてください",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    assert "26:00頃の食事" in message
+
+
 def test_health_chat_service_answers_exercise_question(
     session: Session,
     settings: Settings,

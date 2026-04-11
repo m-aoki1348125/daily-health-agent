@@ -87,7 +87,7 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
     feature_builder = FeatureBuilder()
     trend_analyzer = TrendAnalyzer(settings)
     rule_engine = RuleEngine(settings)
-    report_service = ReportService(llm_provider)
+    report_service = ReportService(llm_provider, settings)
     notification_service = NotificationService(line_client, settings)
 
     metrics_repo = MetricsRepository(session)

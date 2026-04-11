@@ -113,3 +113,33 @@ def test_meal_logging_service_uses_pending_timing_hint(
     meal = MealRepository(session).get_by_source_message_id("msg-2")
     assert meal is not None
     assert meal.consumed_at.astimezone(ZoneInfo("Asia/Tokyo")).strftime("%H:%M") == "18:30"
+
+
+def test_meal_logging_service_counts_post_midnight_meal_as_previous_day(
+    session: Session, settings: Settings, tmp_path: Path
+) -> None:
+    line_client = MockLineClient()
+    line_client.message_contents["msg-3"] = (b"fake-jpeg", "image/jpeg")
+    service = MealLoggingService(
+        settings=settings,
+        line_client=line_client,
+        drive_client=LocalDriveClient(str(tmp_path / "drive")),
+        llm_provider=MockLLMProvider(),
+        meal_repository=MealRepository(session),
+        line_state_repository=LineStateRepository(session),
+    )
+
+    reply = service.process_image_message(
+        message_id="msg-3",
+        reply_token="reply-3",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 2, 2, 0, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meal = MealRepository(session).get_by_source_message_id("msg-3")
+    assert meal is not None
+    assert meal.meal_date.isoformat() == "2026-04-01"
+    assert "26:00" in reply

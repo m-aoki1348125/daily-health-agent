@@ -22,7 +22,7 @@ class MealRepository:
         if entity is None:
             entity = MealRecord(source_message_id=meal.source_message_id)
             self.session.add(entity)
-        entity.meal_date = meal.consumed_at.date()
+        entity.meal_date = meal.meal_date
         entity.consumed_at = meal.consumed_at
         entity.line_user_id = meal.line_user_id
         entity.image_mime_type = meal.image_mime_type
@@ -82,9 +82,14 @@ class MealRepository:
         meal.estimated_calories = estimated_calories
         return meal
 
-    def update_consumed_at(self, meal: MealRecord, consumed_at: datetime) -> MealRecord:
+    def update_consumed_at(
+        self,
+        meal: MealRecord,
+        consumed_at: datetime,
+        meal_date: date,
+    ) -> MealRecord:
         meal.consumed_at = consumed_at
-        meal.meal_date = consumed_at.date()
+        meal.meal_date = meal_date
         return meal
 
     def sum_calories_for_date(self, meal_date: date) -> int:

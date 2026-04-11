@@ -12,6 +12,7 @@ from app.config.settings import Settings
 from app.repositories.line_state_repository import LineStateRepository
 from app.repositories.meal_repository import MealRepository
 from app.schemas.meal_estimate import MealEstimateResult, MealRecordInput
+from app.services.meal_time_service import format_meal_service_time, resolve_meal_service_date
 
 
 @dataclass
@@ -54,7 +55,11 @@ class MealLoggingService:
             image_bytes=image_bytes,
             mime_type=mime_type,
         )
-        target_date = consumed_at.date()
+        target_date = resolve_meal_service_date(
+            consumed_at,
+            timezone=self.settings.timezone,
+            rollover_hour=self.settings.meal_day_rollover_hour,
+        )
         timestamp_label = consumed_at.strftime("%H%M%S")
         extension = mimetypes.guess_extension(mime_type, strict=False) or ".jpg"
         if extension == ".jpe":
@@ -86,6 +91,7 @@ class MealLoggingService:
         meal = MealRecordInput(
             source_message_id=message_id,
             line_user_id=line_user_id,
+            meal_date=target_date,
             consumed_at=consumed_at,
             image_mime_type=mime_type,
             estimated_calories=estimate.estimated_calories,
@@ -109,9 +115,14 @@ class MealLoggingService:
             )
         self.store_daily_summary(target_date)
         total_for_day = self.meal_repository.sum_calories_for_date(target_date)
+        time_text = format_meal_service_time(
+            consumed_at,
+            timezone=self.settings.timezone,
+            rollover_hour=self.settings.meal_day_rollover_hour,
+        )
         reply_text = (
             f"食事を記録しました。推定摂取カロリーは {estimate.estimated_calories} kcal です。\n"
-            f"記録時刻: {consumed_at.strftime('%H:%M')} ごろ\n"
+            f"記録時刻: {time_text} ごろ\n"
             f"今日の累計は {total_for_day} kcal です。\n"
             "明朝の健康アドバイスにも反映します。"
         )

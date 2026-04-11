@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date as date_type
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -33,6 +34,7 @@ class MealTextParseResult(BaseModel):
 class MealRecordInput(BaseModel):
     source_message_id: str
     line_user_id: str
+    meal_date: date_type
     consumed_at: datetime
     image_mime_type: str
     estimated_calories: int

@@ -6,14 +6,17 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from app.clients.llm_base import LLMProvider
+from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
 from app.schemas.health_features import DailyMetricInput, TrendContext
 from app.schemas.report_schema import DailyMealSummary, DailyReport, MealContextItem, RuleEvaluation
+from app.services.meal_time_service import format_meal_service_time
 
 
 class ReportService:
-    def __init__(self, llm_provider: LLMProvider) -> None:
+    def __init__(self, llm_provider: LLMProvider, settings: Settings) -> None:
         self.llm_provider = llm_provider
+        self.settings = settings
         self.logger = logging.getLogger(__name__)
 
     def build_advice(
@@ -39,7 +42,11 @@ class ReportService:
             "largest_meal_calories": meal_summary.max_calories,
             "meal_entries": [
                 {
-                    "time": item.consumed_at.strftime("%H:%M"),
+                    "time": format_meal_service_time(
+                        item.consumed_at,
+                        timezone=self.settings.timezone,
+                        rollover_hour=self.settings.meal_day_rollover_hour,
+                    ),
                     "estimated_calories": item.estimated_calories,
                     "summary": item.summary,
                     "meal_items": item.meal_items,
