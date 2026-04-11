@@ -180,6 +180,23 @@ module "weekly_job" {
   max_retries           = 0
 }
 
+module "meal_reminder_job" {
+  source                = "../../modules/cloud_run_job"
+  name_prefix           = local.name_prefix
+  region                = var.region
+  job_name              = "meal-reminder"
+  image                 = var.cloud_run_image
+  service_account_email = module.service_accounts.job_service_account_email
+  args                  = ["-m", "app.batch.run_meal_reminder_job"]
+  plain_env             = local.plain_env
+  secret_env            = local.secret_env
+  cloud_sql_instances   = [module.cloud_sql.instance_connection_name]
+  cpu                   = "1"
+  memory                = "512Mi"
+  timeout_seconds       = 300
+  max_retries           = 0
+}
+
 module "monthly_job" {
   source                = "../../modules/cloud_run_job"
   name_prefix           = local.name_prefix
@@ -293,6 +310,18 @@ module "weekly_scheduler" {
   timezone                        = var.timezone
   project_number                  = data.google_project.current.number
   cloud_run_job_name              = module.weekly_job.name
+  scheduler_service_account_email = module.service_accounts.scheduler_service_account_email
+}
+
+module "meal_reminder_scheduler" {
+  source                          = "../../modules/scheduler"
+  name_prefix                     = local.name_prefix
+  job_name                        = "meal-reminder"
+  region                          = var.region
+  schedule                        = var.meal_reminder_schedule
+  timezone                        = var.timezone
+  project_number                  = data.google_project.current.number
+  cloud_run_job_name              = module.meal_reminder_job.name
   scheduler_service_account_email = module.service_accounts.scheduler_service_account_email
 }
 

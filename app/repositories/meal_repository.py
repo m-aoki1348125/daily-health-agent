@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
@@ -80,6 +80,11 @@ class MealRepository:
 
     def update_estimated_calories(self, meal: MealRecord, estimated_calories: int) -> MealRecord:
         meal.estimated_calories = estimated_calories
+        return meal
+
+    def update_consumed_at(self, meal: MealRecord, consumed_at: datetime) -> MealRecord:
+        meal.consumed_at = consumed_at
+        meal.meal_date = consumed_at.date()
         return meal
 
     def sum_calories_for_date(self, meal_date: date) -> int:

@@ -14,6 +14,7 @@ from app.repositories.advice_repository import AdviceRepository
 from app.repositories.line_state_repository import LineStateRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
+from app.schemas.meal_estimate import MealRecordInput, MealTextParseResult, ParsedMealEntry
 from app.services.meal_logging_service import MealLoggingService
 
 
@@ -37,6 +38,7 @@ class HealthChatService:
     ) -> str:
         normalized = self._normalize_text(text)
         target_date = self._resolve_date(normalized, event_timestamp_ms)
+        event_time = self._event_datetime(event_timestamp_ms)
 
         if self._looks_like_meal_selection(normalized):
             resolved = self._resolve_pending_meal_selection(
@@ -45,6 +47,24 @@ class HealthChatService:
             )
             if resolved is not None:
                 return resolved
+
+        timing_resolution = self._resolve_pending_meal_time_confirmation(
+            normalized=normalized,
+            line_user_id=line_user_id,
+            event_time=event_time,
+        )
+        if timing_resolution is not None:
+            return timing_resolution
+
+        meal_followup = self._resolve_pending_meal_followup(
+            text=text,
+            normalized=normalized,
+            line_user_id=line_user_id,
+            target_date=target_date,
+            event_time=event_time,
+        )
+        if meal_followup is not None:
+            return meal_followup
 
         if "削除" in normalized and ("食事" in normalized or "写真" in normalized):
             return self._delete_latest_meal(line_user_id=line_user_id, target_date=target_date)
@@ -73,6 +93,16 @@ class HealthChatService:
                 corrected_calories=corrected_calories,
             )
 
+        if self._looks_like_meal_timing_hint(normalized):
+            hint_response = self._store_meal_timing_hint(
+                normalized=normalized,
+                line_user_id=line_user_id,
+                target_date=target_date,
+                event_time=event_time,
+            )
+            if hint_response is not None:
+                return hint_response
+
         if any(word in normalized for word in ["食事回数", "摂取カロリー", "食事"]) and any(
             word in normalized
             for word in ["教えて", "確認", "何回", "何kcal", "何キロカロリー", "?"]
@@ -84,6 +114,14 @@ class HealthChatService:
 
         if "運動" in normalized:
             return self._answer_exercise_question(question=text, target_date=target_date)
+
+        if self._looks_like_meal_text_registration(normalized):
+            return self._register_meal_text_entries(
+                text=text,
+                line_user_id=line_user_id,
+                target_date=target_date,
+                event_time=event_time,
+            )
 
         return self._answer_general_question(
             question=text,
@@ -293,6 +331,201 @@ class HealthChatService:
             f"食事: {meal_count} 回 / {total_meal_calories} kcal"
         )
 
+    def _resolve_pending_meal_time_confirmation(
+        self,
+        *,
+        normalized: str,
+        line_user_id: str,
+        event_time: datetime,
+    ) -> str | None:
+        state = self.line_state_repository.get(line_user_id)
+        if state is None or state.intent != "pending_meal_time_confirmation":
+            return None
+        if not self._looks_like_meal_timing_hint(normalized):
+            return None
+
+        expires_at = str(state.state_json.get("expires_at", ""))
+        meal_id = state.state_json.get("meal_id")
+        if not expires_at or not isinstance(meal_id, int):
+            self.line_state_repository.clear(line_user_id)
+            return None
+        if event_time > datetime.fromisoformat(expires_at):
+            self.line_state_repository.clear(line_user_id)
+            return None
+
+        meal = self.meal_repository.get_by_id(meal_id)
+        if meal is None:
+            self.line_state_repository.clear(line_user_id)
+            return "直前の食事記録が見つからなかったため、もう一度写真か食事内容を送ってください。"
+
+        consumed_at = self._parse_consumed_at_hint(normalized, target_date=meal.meal_date)
+        if consumed_at is None:
+            return (
+                "食べた時刻を読み取れませんでした。"
+                "『18:30ごろ食べた』『朝7時ごろです』のように送ってください。"
+            )
+
+        self.meal_repository.update_consumed_at(meal, consumed_at)
+        self.meal_repository.flush()
+        self.meal_logging_service.store_daily_summary(meal.meal_date)
+        self.line_state_repository.clear(line_user_id)
+        self.drive_client.store_json(
+            category="corrections",
+            target_date=meal.meal_date,
+            filename=f"{meal.meal_date.isoformat()}_{meal.source_message_id}_meal_time_correction.json",
+            payload={
+                "action": "correct_meal_time",
+                "corrected_at": datetime.now(ZoneInfo(self.settings.timezone)).isoformat(),
+                "meal_id": meal.id,
+                "source_message_id": meal.source_message_id,
+                "consumed_at": consumed_at.isoformat(),
+                "summary": meal.summary,
+            },
+        )
+        return (
+            f"{meal.meal_date.isoformat()} の食事時刻を "
+            f"{consumed_at.strftime('%H:%M')} ごろに更新しました。\n"
+            "今後の食事回数集計と健康アドバイスに反映します。"
+        )
+
+    def _resolve_pending_meal_followup(
+        self,
+        *,
+        text: str,
+        normalized: str,
+        line_user_id: str,
+        target_date: date,
+        event_time: datetime,
+    ) -> str | None:
+        state = self.line_state_repository.get(line_user_id)
+        if state is None or state.intent != "meal_reminder_followup":
+            return None
+        expires_at = str(state.state_json.get("expires_at", ""))
+        if not expires_at or event_time > datetime.fromisoformat(expires_at):
+            self.line_state_repository.clear(line_user_id)
+            return None
+        if not self._looks_like_meal_text_registration(normalized):
+            return None
+        reminder_date = state.state_json.get("date")
+        effective_target_date = target_date
+        if isinstance(reminder_date, str):
+            effective_target_date = date.fromisoformat(reminder_date)
+        return self._register_meal_text_entries(
+            text=text,
+            line_user_id=line_user_id,
+            target_date=effective_target_date,
+            event_time=event_time,
+            clear_state=True,
+        )
+
+    def _register_meal_text_entries(
+        self,
+        *,
+        text: str,
+        line_user_id: str,
+        target_date: date,
+        event_time: datetime,
+        clear_state: bool = False,
+    ) -> str:
+        try:
+            parsed = self.llm_provider.parse_meal_text(
+                text=text, target_date=target_date.isoformat()
+            )
+        except Exception:
+            parsed = self._fallback_parse_meal_text(text)
+        if not parsed.meals:
+            return (
+                "食事内容を読み取れませんでした。"
+                "『朝7:30におにぎり、昼12:15にラーメン』のように送ってください。"
+            )
+
+        saved_meals: list[MealRecord] = []
+        for idx, entry in enumerate(parsed.meals, start=1):
+            consumed_at = self._resolve_parsed_meal_time(
+                time_text=entry.time_text,
+                target_date=target_date,
+                fallback=event_time,
+                index=idx,
+            )
+            synthetic_id = f"text-{line_user_id}-{event_time.strftime('%Y%m%d%H%M%S%f')}-{idx}"
+            payload = {
+                "source": "line_text",
+                "original_text": text,
+                "consumed_at": consumed_at.isoformat(),
+                "summary": entry.summary,
+                "meal_items": list(entry.meal_items),
+                "estimated_calories": entry.estimated_calories,
+                "confidence": entry.confidence,
+                "provider": parsed.provider,
+                "model_name": parsed.model_name,
+            }
+            analysis_file_id = self.drive_client.store_json(
+                category="meal_records",
+                target_date=target_date,
+                filename=f"{target_date.isoformat()}_{synthetic_id}_manual_meal.json",
+                payload=payload,
+            )
+            self.meal_repository.upsert(
+                MealRecordInput(
+                    source_message_id=synthetic_id,
+                    line_user_id=line_user_id,
+                    consumed_at=consumed_at,
+                    image_mime_type="text/plain",
+                    estimated_calories=entry.estimated_calories,
+                    confidence=entry.confidence,
+                    summary=entry.summary,
+                    meal_items=entry.meal_items,
+                    rationale="line text registration",
+                    analysis_drive_file_id=analysis_file_id,
+                    provider=parsed.provider,
+                    model_name=parsed.model_name,
+                )
+            )
+            self.meal_repository.flush()
+            meal = self.meal_repository.get_by_source_message_id(synthetic_id)
+            if meal is not None:
+                saved_meals.append(meal)
+
+        self.meal_logging_service.store_daily_summary(target_date)
+        if clear_state:
+            self.line_state_repository.clear(line_user_id)
+        total = self.meal_repository.sum_calories_for_date(target_date)
+        lines = [f"{target_date.isoformat()} の食事を {len(saved_meals)} 件追加登録しました。"]
+        for meal in saved_meals:
+            time_label = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone)).strftime(
+                "%H:%M"
+            )
+            lines.append(
+                f"- {time_label} {meal.summary} / {meal.estimated_calories} kcal"
+            )
+        lines.append(f"現在の合計は {total} kcal です。")
+        return "\n".join(lines)
+
+    def _store_meal_timing_hint(
+        self,
+        *,
+        normalized: str,
+        line_user_id: str,
+        target_date: date,
+        event_time: datetime,
+    ) -> str | None:
+        consumed_at = self._parse_consumed_at_hint(normalized, target_date=target_date)
+        if consumed_at is None:
+            return None
+        expires_at = event_time + timedelta(minutes=self.settings.meal_timing_hint_ttl_minutes)
+        self.line_state_repository.upsert(
+            line_user_id,
+            "pending_meal_timing_hint",
+            {
+                "consumed_at": consumed_at.isoformat(),
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+        return (
+            f"次に送る食事写真を {consumed_at.strftime('%H:%M')} ごろの食事として記録します。\n"
+            "画像だけ送っても自動登録できます。"
+        )
+
     def _answer_exercise_question(self, *, question: str, target_date: date) -> str:
         context = self._build_question_context(target_date)
         try:
@@ -410,10 +643,7 @@ class HealthChatService:
         return "\n".join(lines)
 
     def _resolve_date(self, text: str, event_timestamp_ms: int) -> date:
-        base_date = datetime.fromtimestamp(
-            event_timestamp_ms / 1000,
-            tz=ZoneInfo(self.settings.timezone),
-        ).date()
+        base_date = self._event_datetime(event_timestamp_ms).date()
         if "一昨日" in text:
             return base_date - timedelta(days=2)
         if "昨日" in text:
@@ -497,6 +727,43 @@ class HealthChatService:
         return "kcal" in text or "キロカロリー" in text
 
     @staticmethod
+    def _looks_like_meal_timing_hint(text: str) -> bool:
+        meal_words = [
+            "食事",
+            "写真",
+            "画像",
+            "朝食",
+            "昼食",
+            "夕食",
+            "夜食",
+            "食べた",
+            "食べました",
+        ]
+        if not any(word in text for word in meal_words):
+            return False
+        return bool(
+            re.search(r"(\d{1,2})[:時](\d{1,2})?", text)
+            or "半" in text
+            or any(word in text for word in ["朝", "昼", "夕方", "夜"])
+        )
+
+    @staticmethod
+    def _looks_like_meal_text_registration(text: str) -> bool:
+        meal_words = [
+            "朝",
+            "昼",
+            "夜",
+            "夕",
+            "間食",
+            "食べた",
+            "食べました",
+            "おにぎり",
+            "ごはん",
+            "パン",
+        ]
+        return any(word in text for word in meal_words)
+
+    @staticmethod
     def _meal_matches_daypart(meal: MealRecord, daypart: str) -> bool:
         hour = meal.consumed_at.hour
         if daypart == "breakfast":
@@ -516,3 +783,106 @@ class HealthChatService:
     def _format_meal_label(self, meal: MealRecord) -> str:
         local_dt = meal.consumed_at.astimezone(ZoneInfo(self.settings.timezone))
         return f"{local_dt.strftime('%H:%M')}頃の食事"
+
+    def _parse_consumed_at_hint(self, text: str, *, target_date: date) -> datetime | None:
+        explicit = re.search(r"(\d{1,2})\s*[:時]\s*(\d{1,2})?", text)
+        if explicit:
+            hour = int(explicit.group(1))
+            minute = int(explicit.group(2) or 0)
+            if "半" in text and explicit.group(2) is None:
+                minute = 30
+            return datetime(
+                target_date.year,
+                target_date.month,
+                target_date.day,
+                hour,
+                minute,
+                tzinfo=ZoneInfo(self.settings.timezone),
+            )
+        if "朝" in text:
+            return self._slot_datetime(target_date, "朝")
+        if "昼" in text:
+            return self._slot_datetime(target_date, "昼")
+        if "夕方" in text:
+            return self._slot_datetime(target_date, "夕方")
+        if "夜" in text or "夕食" in text:
+            return self._slot_datetime(target_date, "夜")
+        return None
+
+    def _resolve_parsed_meal_time(
+        self,
+        *,
+        time_text: str | None,
+        target_date: date,
+        fallback: datetime,
+        index: int,
+    ) -> datetime:
+        if time_text:
+            parsed = self._parse_consumed_at_hint(time_text, target_date=target_date)
+            if parsed is not None:
+                return parsed
+        defaults = [
+            self._slot_datetime(target_date, "朝"),
+            self._slot_datetime(target_date, "昼"),
+            self._slot_datetime(target_date, "夜"),
+            self._slot_datetime(target_date, "間食"),
+        ]
+        if target_date == fallback.date():
+            return fallback
+        return defaults[min(index - 1, len(defaults) - 1)]
+
+    def _slot_datetime(self, target_date: date, slot: str) -> datetime:
+        mapping = {
+            "朝": (8, 0),
+            "昼": (12, 30),
+            "夕方": (16, 0),
+            "夜": (19, 0),
+            "間食": (15, 0),
+        }
+        hour, minute = mapping.get(slot, (12, 0))
+        return datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            hour,
+            minute,
+            tzinfo=ZoneInfo(self.settings.timezone),
+        )
+
+    def _event_datetime(self, event_timestamp_ms: int) -> datetime:
+        return datetime.fromtimestamp(
+            event_timestamp_ms / 1000,
+            tz=ZoneInfo(self.settings.timezone),
+        )
+
+    def _fallback_parse_meal_text(self, text: str) -> MealTextParseResult:
+        entries: list[ParsedMealEntry] = []
+        normalized = text.replace("、", "\n").replace("。", "\n")
+        for line in [item.strip() for item in normalized.splitlines() if item.strip()]:
+            time_text = None
+            if "朝" in line:
+                time_text = "朝"
+            elif "昼" in line:
+                time_text = "昼"
+            elif "夕" in line or "夜" in line:
+                time_text = "夜"
+            calories = 400
+            if "ラーメン" in line or "丼" in line:
+                calories = 700
+            elif "おにぎり" in line or "パン" in line:
+                calories = 250
+            entries.append(
+                ParsedMealEntry(
+                    time_text=time_text,
+                    summary=line,
+                    meal_items=[line],
+                    estimated_calories=calories,
+                    confidence="low",
+                )
+            )
+        return MealTextParseResult(
+            meals=entries,
+            note="local fallback parser",
+            provider="fallback",
+            model_name="fallback",
+        )

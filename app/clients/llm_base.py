@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from app.schemas.advice_result import AdviceResult
-from app.schemas.meal_estimate import MealEstimateResult
+from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult
 
 
 class LLMProvider(ABC):
@@ -29,4 +29,13 @@ class LLMProvider(ABC):
         question: str,
         context: dict[str, Any],
     ) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def parse_meal_text(
+        self,
+        *,
+        text: str,
+        target_date: str,
+    ) -> MealTextParseResult:
         raise NotImplementedError

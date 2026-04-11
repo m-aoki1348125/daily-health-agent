@@ -49,12 +49,14 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
             try:
                 drive_client = build_drive_client(settings)
                 llm_provider = build_llm_provider(settings)
+                line_state_repository = LineStateRepository(session)
                 meal_logging_service = MealLoggingService(
                     settings=settings,
                     line_client=line_client,
                     drive_client=drive_client,
                     llm_provider=llm_provider,
                     meal_repository=MealRepository(session),
+                    line_state_repository=line_state_repository,
                 )
                 health_chat_service = HealthChatService(
                     settings=settings,
@@ -63,7 +65,7 @@ def create_app(settings_factory: Callable[[], Settings] = get_settings) -> FastA
                     meal_repository=MealRepository(session),
                     metrics_repository=MetricsRepository(session),
                     advice_repository=AdviceRepository(session),
-                    line_state_repository=LineStateRepository(session),
+                    line_state_repository=line_state_repository,
                     meal_logging_service=meal_logging_service,
                 )
                 processed = LineWebhookService(

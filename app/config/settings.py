@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = Field(default=30, ge=1)
     meal_calorie_alert_delta: int = 400
     meal_calorie_balance_alert_delta: int = 300
+    meal_reminder_min_count: int = Field(default=2, ge=0, le=10)
+    meal_reminder_min_calories: int = Field(default=900, ge=0, le=5000)
+    meal_timing_hint_ttl_minutes: int = Field(default=180, ge=5, le=1440)
+    meal_post_image_timing_ttl_minutes: int = Field(default=120, ge=5, le=1440)
 
 
 @lru_cache(maxsize=1)

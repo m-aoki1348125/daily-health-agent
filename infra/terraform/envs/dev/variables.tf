@@ -14,6 +14,7 @@ variable "artifact_registry_repository" { type = string }
 variable "cloud_run_image" { type = string }
 variable "timezone" { type = string }
 variable "daily_schedule" { type = string }
+variable "meal_reminder_schedule" { type = string }
 variable "weekly_schedule" { type = string }
 variable "monthly_schedule" { type = string }
 variable "line_user_id" { type = string }

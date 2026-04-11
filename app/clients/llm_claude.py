@@ -10,7 +10,7 @@ import httpx
 from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
-from app.schemas.meal_estimate import MealEstimateResult
+from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult
 
 
 class ClaudeProvider(LLMProvider):
@@ -113,6 +113,37 @@ class ClaudeProvider(LLMProvider):
             for block in message.content
             if hasattr(block, "text") and block.text is not None
         ).strip()
+
+    def parse_meal_text(
+        self,
+        *,
+        text: str,
+        target_date: str,
+    ) -> MealTextParseResult:
+        model_name = self._resolve_model_name()
+        message = self.client.messages.create(
+            model=model_name,
+            max_tokens=900,
+            system=_meal_text_system_prompt(),
+            messages=[
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"text": text, "target_date": target_date},
+                        ensure_ascii=False,
+                    ),
+                }
+            ],
+        )
+        content = "".join(
+            cast(str, block.text)
+            for block in message.content
+            if hasattr(block, "text") and block.text is not None
+        )
+        data = _parse_json_object(content)
+        data["provider"] = "claude"
+        data["model_name"] = model_name
+        return MealTextParseResult.model_validate(data)
 
     def _resolve_model_name(self) -> str:
         preferred = self.model_name
@@ -270,6 +301,20 @@ def _health_question_system_prompt() -> str:
         "今日無理なくできる具体策を 2〜4 文で返してください。"
         "記録参照の質問には、context にある数値だけを使って答えてください。"
         "Markdown や JSON ではなく、LINE にそのまま返せる平文だけを返してください。"
+    )
+
+
+def _meal_text_system_prompt() -> str:
+    return (
+        "あなたは食事の手入力メモを構造化し、概算カロリーを保守的に見積もるAIです。"
+        "入力は日本語の自由文で、朝食・昼食・夕食・間食と時間のヒントが含まれます。"
+        "厳密なJSONのみを返し、キーは meals, note のみです。"
+        "meals は配列で、各要素は time_text, summary, meal_items, "
+        "estimated_calories, confidence を持ちます。"
+        "time_text は '07:30' のような時刻、または '朝' '昼' '夕方' '夜' のような簡単な表現です。"
+        "summary と meal_items は日本語、estimated_calories は整数kcal、"
+        "confidence は low/medium/high です。"
+        "食事が明確でない文は無理に増やさず、食事として読み取れる内容だけを返してください。"
     )
 
 

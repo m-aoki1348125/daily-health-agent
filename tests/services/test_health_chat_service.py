@@ -22,12 +22,14 @@ from app.services.meal_logging_service import MealLoggingService
 
 def build_service(session: Session, settings: Settings, tmp_path: Path) -> HealthChatService:
     drive_client = LocalDriveClient(str(tmp_path / "drive"))
+    line_state_repository = LineStateRepository(session)
     meal_logging_service = MealLoggingService(
         settings=settings,
         line_client=MockLineClient(),
         drive_client=drive_client,
         llm_provider=MockLLMProvider(),
         meal_repository=MealRepository(session),
+        line_state_repository=line_state_repository,
     )
     return HealthChatService(
         settings=settings,
@@ -36,7 +38,7 @@ def build_service(session: Session, settings: Settings, tmp_path: Path) -> Healt
         meal_repository=MealRepository(session),
         metrics_repository=MetricsRepository(session),
         advice_repository=AdviceRepository(session),
-        line_state_repository=LineStateRepository(session),
+        line_state_repository=line_state_repository,
         meal_logging_service=meal_logging_service,
     )
 
@@ -389,3 +391,116 @@ def test_health_chat_service_requests_candidate_selection_for_multiple_meals(
     assert meal is not None
     assert meal.estimated_calories == 650
     assert "650 kcal" in message
+
+
+def test_health_chat_service_stores_pre_image_timing_hint(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="この食事は18:30ごろ食べました",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 1, 18, 40, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    state = LineStateRepository(session).get("U-test")
+    assert state is not None
+    assert state.intent == "pending_meal_timing_hint"
+    assert "18:30" in message
+
+
+def test_health_chat_service_registers_meal_text_from_reminder_followup(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    line_state_repository = LineStateRepository(session)
+    line_state_repository.upsert(
+        "U-test",
+        "meal_reminder_followup",
+        {
+            "date": "2026-04-01",
+            "expires_at": datetime(
+                2026,
+                4,
+                2,
+                7,
+                0,
+                tzinfo=ZoneInfo("Asia/Tokyo"),
+            ).isoformat(),
+        },
+    )
+    session.commit()
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="朝7:30におにぎり、昼12:15にラーメンを食べました",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 1, 23, 5, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meals = MealRepository(session).list_for_user_and_date("U-test", date(2026, 4, 1))
+    assert len(meals) >= 2
+    assert "追加登録" in message
+    assert "現在の合計" in message
+
+
+def test_health_chat_service_updates_latest_meal_time_after_image_followup(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    meal = MealRecord(
+        source_message_id="meal-msg-20",
+        meal_date=date(2026, 4, 1),
+        consumed_at=datetime(2026, 4, 1, 20, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        line_user_id="U-test",
+        image_mime_type="image/jpeg",
+        estimated_calories=620,
+        confidence="medium",
+        summary="夕食です。",
+        meal_items_json=["丼"],
+        rationale="推定",
+        provider="mock",
+        model_name="mock",
+    )
+    session.add(meal)
+    session.flush()
+    LineStateRepository(session).upsert(
+        "U-test",
+        "pending_meal_time_confirmation",
+        {
+            "meal_id": meal.id,
+            "expires_at": datetime(
+                2026,
+                4,
+                1,
+                22,
+                0,
+                tzinfo=ZoneInfo("Asia/Tokyo"),
+            ).isoformat(),
+        },
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="この写真は18:30ごろ食べました",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 1, 20, 5, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    stored_meal = MealRepository(session).get_by_source_message_id("meal-msg-20")
+    assert stored_meal is not None
+    assert stored_meal.consumed_at.astimezone(ZoneInfo("Asia/Tokyo")).strftime("%H:%M") == "18:30"
+    assert "18:30" in message

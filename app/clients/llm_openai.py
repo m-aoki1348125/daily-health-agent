@@ -7,7 +7,7 @@ from typing import Any, cast
 from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
-from app.schemas.meal_estimate import MealEstimateResult
+from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult
 
 
 class OpenAIProvider(LLMProvider):
@@ -102,6 +102,31 @@ class OpenAIProvider(LLMProvider):
         )
         return response.output_text.strip()
 
+    def parse_meal_text(
+        self,
+        *,
+        text: str,
+        target_date: str,
+    ) -> MealTextParseResult:
+        response = self.client.responses.create(
+            model=self.model_name,
+            input=[
+                {"role": "system", "content": _meal_text_system_prompt()},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"text": text, "target_date": target_date},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            text={"format": {"type": "json_object"}},
+        )
+        data = json.loads(response.output_text)
+        data["provider"] = "openai"
+        data["model_name"] = self.model_name
+        return MealTextParseResult.model_validate(data)
+
 
 def _system_prompt() -> str:
     return (
@@ -152,4 +177,17 @@ def _health_question_system_prompt() -> str:
         "診断はせず、医療判断は控えめにしてください。"
         "運動相談には、今日無理なくできる実行案を短く具体的に返してください。"
         "LINE 向けの平文のみを返し、JSON や Markdown は使わないでください。"
+    )
+
+
+def _meal_text_system_prompt() -> str:
+    return (
+        "あなたは食事の手入力メモを構造化し、概算カロリーを保守的に見積もるAIです。"
+        "厳密なJSONのみを返し、キーは meals, note のみです。"
+        "meals は配列で、各要素は time_text, summary, meal_items, "
+        "estimated_calories, confidence を持ちます。"
+        "time_text は '07:30' のような時刻、または '朝' '昼' '夕方' '夜' のような簡単な表現です。"
+        "summary と meal_items は日本語、estimated_calories は整数kcal、"
+        "confidence は low/medium/high です。"
+        "食事として読み取れる内容だけを返してください。"
     )

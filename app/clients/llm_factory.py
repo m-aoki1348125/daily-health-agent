@@ -7,7 +7,7 @@ from app.clients.llm_claude import ClaudeProvider
 from app.clients.llm_openai import OpenAIProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
-from app.schemas.meal_estimate import MealEstimateResult
+from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult, ParsedMealEntry
 
 
 class MockLLMProvider(LLMProvider):
@@ -64,6 +64,56 @@ class MockLLMProvider(LLMProvider):
         return (
             f"昨日までの記録を踏まえると、{question}への答えは、"
             "軽めに無理なく進めるのがよさそうです。"
+        )
+
+    def parse_meal_text(
+        self,
+        *,
+        text: str,
+        target_date: str,
+    ) -> MealTextParseResult:
+        del target_date
+        entries: list[ParsedMealEntry] = []
+        normalized = text.replace("、", "\n").replace("。", "\n")
+        for line in [item.strip() for item in normalized.splitlines() if item.strip()]:
+            time_text = None
+            if "朝" in line:
+                time_text = "朝"
+            elif "昼" in line:
+                time_text = "昼"
+            elif "夕" in line or "夜" in line:
+                time_text = "夜"
+            calories = 350
+            if "ラーメン" in line or "丼" in line:
+                calories = 700
+            elif "定食" in line:
+                calories = 750
+            elif "おにぎり" in line or "パン" in line:
+                calories = 250
+            entries.append(
+                ParsedMealEntry(
+                    time_text=time_text,
+                    summary=line,
+                    meal_items=[line],
+                    estimated_calories=calories,
+                    confidence="medium",
+                )
+            )
+        if not entries:
+            entries.append(
+                ParsedMealEntry(
+                    time_text="夜",
+                    summary="記載された食事",
+                    meal_items=["食事"],
+                    estimated_calories=500,
+                    confidence="low",
+                )
+            )
+        return MealTextParseResult(
+            meals=entries,
+            note="mock parser",
+            provider="mock",
+            model_name=self.model_name,
         )
 
 

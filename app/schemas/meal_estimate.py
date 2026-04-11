@@ -15,6 +15,21 @@ class MealEstimateResult(BaseModel):
     model_name: str
 
 
+class ParsedMealEntry(BaseModel):
+    time_text: str | None = None
+    summary: str
+    meal_items: list[str] = Field(default_factory=list)
+    estimated_calories: int = Field(ge=0)
+    confidence: str
+
+
+class MealTextParseResult(BaseModel):
+    meals: list[ParsedMealEntry] = Field(default_factory=list)
+    note: str | None = None
+    provider: str
+    model_name: str
+
+
 class MealRecordInput(BaseModel):
     source_message_id: str
     line_user_id: str

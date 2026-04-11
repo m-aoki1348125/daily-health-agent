@@ -32,12 +32,14 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
     )
     line_client = MockLineClient()
     line_client.message_contents["meal-image-1"] = (b"fake-image", "image/jpeg")
+    line_state_repository = LineStateRepository(session)
     meal_logging_service = MealLoggingService(
         settings=settings,
         line_client=line_client,
         drive_client=LocalDriveClient(str(tmp_path / "drive")),
         llm_provider=MockLLMProvider(),
         meal_repository=MealRepository(session),
+        line_state_repository=line_state_repository,
     )
     service = LineWebhookService(
         meal_logging_service=meal_logging_service,
@@ -48,7 +50,7 @@ def test_line_webhook_service_processes_image_and_non_image_messages(
             meal_repository=MealRepository(session),
             metrics_repository=MetricsRepository(session),
             advice_repository=AdviceRepository(session),
-            line_state_repository=LineStateRepository(session),
+            line_state_repository=line_state_repository,
             meal_logging_service=meal_logging_service,
         ),
         default_line_user_id=settings.line_user_id,
@@ -97,6 +99,7 @@ def test_line_webhook_service_rejects_unauthorized_user(
         line_restrict_to_configured_user=True,
     )
     line_client = MockLineClient()
+    line_state_repository = LineStateRepository(session)
     service = LineWebhookService(
         meal_logging_service=MealLoggingService(
             settings=settings,
@@ -104,6 +107,7 @@ def test_line_webhook_service_rejects_unauthorized_user(
             drive_client=LocalDriveClient(str(tmp_path / "drive")),
             llm_provider=MockLLMProvider(),
             meal_repository=MealRepository(session),
+            line_state_repository=line_state_repository,
         ),
         health_chat_service=HealthChatService(
             settings=settings,
@@ -112,13 +116,14 @@ def test_line_webhook_service_rejects_unauthorized_user(
             meal_repository=MealRepository(session),
             metrics_repository=MetricsRepository(session),
             advice_repository=AdviceRepository(session),
-            line_state_repository=LineStateRepository(session),
+            line_state_repository=line_state_repository,
             meal_logging_service=MealLoggingService(
                 settings=settings,
                 line_client=line_client,
                 drive_client=LocalDriveClient(str(tmp_path / "drive")),
                 llm_provider=MockLLMProvider(),
                 meal_repository=MealRepository(session),
+                line_state_repository=line_state_repository,
             ),
         ),
         default_line_user_id=settings.line_user_id,
