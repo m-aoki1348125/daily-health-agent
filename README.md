@@ -1,6 +1,6 @@
 # daily-health-agent
 
-Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康データを毎朝 8:45 JST に解析し、日次レポートと行動アドバイスを生成する Cloud Run Jobs ベースのバッチサービスです。daily はローカルで mock により end-to-end 実行でき、weekly / monthly は将来拡張用のジョブ雛形を含みます。
+Fitbit / Google Drive / LINE / LLM を組み合わせて、前夜から当朝にかけた睡眠と前日分の活動・食事データを毎朝 9:00 JST に解析し、日次レポートと行動アドバイスを生成する Cloud Run Jobs ベースのバッチサービスです。daily はローカルで mock により end-to-end 実行でき、weekly / monthly は将来拡張用のジョブ雛形を含みます。
 
 ## 概要
 
@@ -13,7 +13,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康デ
 - 日次レポート JSON / Markdown を Drive に保存
 - LINE Messaging API で本人に通知
 - Cloud SQL for PostgreSQL に履歴を upsert 保存
-- Cloud Scheduler から Cloud Run Jobs を 8:45 JST に起動
+- Cloud Scheduler から Cloud Run Jobs を 9:00 JST に起動
 - Cloud Run Service で LINE webhook を受け、食事画像を即時記録
 
 ## 前提
@@ -30,7 +30,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前日分の健康デ
 ## アーキテクチャ
 
 ```text
-Cloud Scheduler (45 8 * * *, Asia/Tokyo)
+Cloud Scheduler (0 9 * * *, Asia/Tokyo)
   -> Cloud Run Job (daily)
      -> Fitbit client
      -> Google Drive client
@@ -290,7 +290,7 @@ apply 後は `line_webhook_url` output を LINE Developers Console の webhook U
 
 Terraform は以下のスケジュールを作成します。
 
-- daily: `45 8 * * *`
+- daily: `0 9 * * *`
 - weekly: `45 8 * * 0`
 - monthly: `45 8 1 * *`
 - timezone: `Asia/Tokyo`

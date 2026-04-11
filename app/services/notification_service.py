@@ -63,16 +63,20 @@ class NotificationService:
         else:
             sleep_line = f"{sleep_line}\n睡眠データ基準日: {sleep_source_date}"
         return (
-            f"今日の健康サマリー {report.date.isoformat()}\n\n"
-            f"コンディション: {condition_text}\n"
-            f"{sleep_line}\n"
-            f"安静時心拍: {resting_hr_text}\n"
-            f"昨日の歩数 ({activity_source_date}): {report.metrics.steps:,}歩\n"
-            f"昨日の食事 ({meal_source_date}): {self._build_meal_text(report)}\n\n"
-            f"今日の体調\n{body_condition_lines}\n\n"
-            f"今日のアドバイス\n{today_actions}\n\n"
-            f"中長期の分析\n{long_term_lines}\n\n"
-            f"{footer}"
+            f"🌅 今日の健康サマリー {report.date.isoformat()}\n\n"
+            f"━━━━━━━━━━\n"
+            f"● コンディション\n"
+            f"{condition_text}\n\n"
+            f"📌 きょうの記録\n"
+            f"🛌 {sleep_line}\n"
+            f"🫀 安静時心拍: {resting_hr_text}\n"
+            f"👣 昨日の歩数 ({activity_source_date}): {report.metrics.steps:,}歩\n"
+            f"🍽️ 昨日の食事 ({meal_source_date}): {self._build_meal_text(report)}\n\n"
+            f"━━━━━━━━━━\n"
+            f"🌤️ 今日の体調\n{body_condition_lines}\n\n"
+            f"🧭 今日のアドバイス\n{today_actions}\n\n"
+            f"📈 中長期の分析\n{long_term_lines}\n\n"
+            f"📁 {footer}"
         )
 
     @staticmethod
