@@ -73,6 +73,9 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
             model_name="claude-haiku-4-5",
         ),
         source_summary={
+            "sleep_source_date": "2026-04-01",
+            "activity_source_date": "2026-03-31",
+            "meal_source_date": "2026-03-31",
             "weekly_trends": ["平日は睡眠がやや短い"],
             "monthly_trends": ["就寝時刻が少し後ろ倒しです"],
         },
@@ -97,10 +100,13 @@ def test_notification_message_includes_fact_and_long_term_sections() -> None:
     message = service.build_message(report)
 
     assert "コンディション: 🟢 Green" in message
+    assert "昨夜の睡眠: 7時間25分（14日平均より -15分）" in message
+    assert "睡眠データ基準日: 2026-04-01" in message
     assert "今日の体調" in message
     assert "今日のアドバイス" in message
     assert "中長期の分析" in message
-    assert "食事: 3回 / 推定 1,450 kcal（7日平均より +120 kcal）" in message
+    assert "昨日の歩数 (2026-03-31): 5,257歩" in message
+    assert "昨日の食事 (2026-03-31): 3回 / 推定 1,450 kcal（7日平均より +120 kcal）" in message
     assert "- ☀️ 睡眠回復: 睡眠量は十分で回復感があります" in message
     assert "- ⛅ 心拍コンディション: 心拍は安定していますが少し慎重に見たいです" in message
     assert "- 平日は睡眠がやや短い" in message
@@ -155,12 +161,17 @@ def test_notification_message_shows_current_resting_hr_even_without_delta() -> N
             average_calories=450,
             max_calories=520,
         ),
+        source_summary={
+            "sleep_source_date": "2026-04-01",
+            "activity_source_date": "2026-03-31",
+            "meal_source_date": "2026-03-31",
+        },
     )
 
     message = service.build_message(report)
 
     assert "安静時心拍: 58 bpm（30日平均との差分は未算出）" in message
-    assert "食事: 2回 / 推定 900 kcal（比較データを蓄積中）" in message
+    assert "昨日の食事 (2026-03-31): 2回 / 推定 900 kcal（比較データを蓄積中）" in message
     assert "- ⛅ 睡眠は確保できています" in message
 
 
@@ -210,8 +221,15 @@ def test_notification_message_marks_rule_based_fallback() -> None:
             average_calories=400,
             max_calories=650,
         ),
+        source_summary={
+            "sleep_source_date": "2026-04-01",
+            "activity_source_date": "2026-03-31",
+            "meal_source_date": "2026-03-31",
+            "sleep_fallback_used": True,
+        },
     )
 
     message = service.build_message(report)
 
+    assert "当日同期未完了のため前日データを使用" in message
     assert message.endswith("詳細レポートは Drive に保存済みです (Not LLM)")

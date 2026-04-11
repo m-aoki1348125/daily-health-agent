@@ -54,6 +54,12 @@ class ReportService:
             "weekly_trends": trend_context.weekly_trends,
             "monthly_trends": trend_context.monthly_trends,
         }
+        payload["data_window"] = {
+            "report_date": metrics.date.isoformat(),
+            "sleep_scope": "last_night_sleep",
+            "activity_scope": "previous_day_activity",
+            "meal_scope": "previous_day_meals",
+        }
         try:
             return self.llm_provider.generate_advice(payload)
         except Exception:
@@ -124,7 +130,16 @@ class ReportService:
         advice: AdviceResult,
         meal_summary: DailyMealSummary,
         raw_drive_file_id: str | None,
+        source_summary: dict[str, Any] | None = None,
     ) -> DailyReport:
+        summary = dict(source_summary or {})
+        summary.update(
+            {
+                "weekly_trends": trend_context.weekly_trends,
+                "monthly_trends": trend_context.monthly_trends,
+                "meal_trends": meal_summary.trend_notes,
+            }
+        )
         return DailyReport(
             date=metrics.date,
             generated_at=datetime.now(UTC),
@@ -134,11 +149,7 @@ class ReportService:
             advice=advice,
             meal_summary=meal_summary,
             raw_drive_file_id=raw_drive_file_id,
-            source_summary={
-                "weekly_trends": trend_context.weekly_trends,
-                "monthly_trends": trend_context.monthly_trends,
-                "meal_trends": meal_summary.trend_notes,
-            },
+            source_summary=summary,
         )
 
     @staticmethod

@@ -18,6 +18,16 @@ class NotificationService:
         advice = report.advice
         weekly_trends = list(report.source_summary.get("weekly_trends", []))
         monthly_trends = list(report.source_summary.get("monthly_trends", []))
+        sleep_source_date = str(
+            report.source_summary.get("sleep_source_date", report.date.isoformat())
+        )
+        activity_source_date = str(
+            report.source_summary.get("activity_source_date", report.date.isoformat())
+        )
+        meal_source_date = str(
+            report.source_summary.get("meal_source_date", report.date.isoformat())
+        )
+        sleep_fallback_used = bool(report.source_summary.get("sleep_fallback_used", False))
         sleep_hours = report.metrics.sleep_minutes // 60
         sleep_minutes = report.metrics.sleep_minutes % 60
         sleep_delta = (
@@ -41,14 +51,24 @@ class NotificationService:
         footer = "詳細レポートは Drive に保存済みです"
         if advice.provider == "fallback":
             footer = f"{footer} (Not LLM)"
+        sleep_line = (
+            f"昨夜の睡眠: {sleep_hours}時間{sleep_minutes:02d}分"
+            f"（14日平均より {sleep_delta}）"
+        )
+        if sleep_fallback_used:
+            sleep_line = (
+                f"{sleep_line}\n睡眠データ基準日: {sleep_source_date}"
+                "（当日同期未完了のため前日データを使用）"
+            )
+        else:
+            sleep_line = f"{sleep_line}\n睡眠データ基準日: {sleep_source_date}"
         return (
             f"今日の健康サマリー {report.date.isoformat()}\n\n"
             f"コンディション: {condition_text}\n"
-            f"睡眠: {sleep_hours}時間{sleep_minutes:02d}分"
-            f"（14日平均より {sleep_delta}）\n"
+            f"{sleep_line}\n"
             f"安静時心拍: {resting_hr_text}\n"
-            f"前日歩数: {report.metrics.steps:,}歩\n"
-            f"食事: {self._build_meal_text(report)}\n\n"
+            f"昨日の歩数 ({activity_source_date}): {report.metrics.steps:,}歩\n"
+            f"昨日の食事 ({meal_source_date}): {self._build_meal_text(report)}\n\n"
             f"今日の体調\n{body_condition_lines}\n\n"
             f"今日のアドバイス\n{today_actions}\n\n"
             f"中長期の分析\n{long_term_lines}\n\n"
