@@ -448,6 +448,67 @@ def test_health_chat_service_stores_pre_image_timing_hint(
     assert "18:30" in message
 
 
+def test_health_chat_service_registers_text_meal_instead_of_waiting_for_image(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="昼に牛丼並食べました",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 12, 20, 16, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    state = LineStateRepository(session).get("U-test")
+    meals = MealRepository(session).list_for_user_and_date("U-test", date(2026, 4, 12))
+    assert state is None
+    assert len(meals) >= 1
+    assert "追加登録" in message
+    assert "牛丼" in message
+
+
+def test_health_chat_service_registers_text_meal_even_if_timing_hint_state_exists(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    line_state_repository = LineStateRepository(session)
+    line_state_repository.upsert(
+        "U-test",
+        "pending_meal_timing_hint",
+        {
+            "consumed_at": datetime(
+                2026, 4, 12, 12, 30, tzinfo=ZoneInfo("Asia/Tokyo")
+            ).isoformat(),
+            "expires_at": datetime(
+                2026, 4, 12, 23, 0, tzinfo=ZoneInfo("Asia/Tokyo")
+            ).isoformat(),
+        },
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="画像はないです。牛丼並盛りで昼ごはん登録しておいて。",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 12, 20, 16, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    state = LineStateRepository(session).get("U-test")
+    meals = MealRepository(session).list_for_user_and_date("U-test", date(2026, 4, 12))
+    assert state is None
+    assert len(meals) >= 1
+    assert "追加登録" in message
+    assert "牛丼" in message
+
+
 def test_health_chat_service_registers_meal_text_from_reminder_followup(
     session: Session,
     settings: Settings,

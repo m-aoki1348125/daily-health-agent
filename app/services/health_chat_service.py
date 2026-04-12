@@ -94,6 +94,14 @@ class HealthChatService:
                 corrected_calories=corrected_calories,
             )
 
+        if self._looks_like_meal_text_registration(normalized):
+            return self._register_meal_text_entries(
+                text=text,
+                line_user_id=line_user_id,
+                target_date=target_date,
+                event_time=event_time,
+            )
+
         if self._looks_like_meal_timing_hint(normalized):
             hint_response = self._store_meal_timing_hint(
                 normalized=normalized,
@@ -115,14 +123,6 @@ class HealthChatService:
 
         if "運動" in normalized:
             return self._answer_exercise_question(question=text, target_date=target_date)
-
-        if self._looks_like_meal_text_registration(normalized):
-            return self._register_meal_text_entries(
-                text=text,
-                line_user_id=line_user_id,
-                target_date=target_date,
-                event_time=event_time,
-            )
 
         return self._answer_general_question(
             question=text,
@@ -506,7 +506,11 @@ class HealthChatService:
                 saved_meals.append(meal)
 
         self.meal_logging_service.store_daily_summary(target_date)
-        if clear_state:
+        state = self.line_state_repository.get(line_user_id)
+        transient_intents = {"meal_reminder_followup", "pending_meal_timing_hint"}
+        if clear_state or (
+            state is not None and state.intent in transient_intents
+        ):
             self.line_state_repository.clear(line_user_id)
         total = self.meal_repository.sum_calories_for_date(target_date)
         lines = [f"{target_date.isoformat()} の食事を {len(saved_meals)} 件追加登録しました。"]
@@ -772,19 +776,36 @@ class HealthChatService:
 
     @staticmethod
     def _looks_like_meal_text_registration(text: str) -> bool:
-        meal_words = [
-            "朝",
-            "昼",
-            "夜",
-            "夕",
-            "間食",
-            "食べた",
-            "食べました",
+        temporal_words = ["朝", "昼", "夜", "夕", "間食", "食べた", "食べました"]
+        food_words = [
+            "牛丼",
+            "丼",
+            "ラーメン",
+            "カレー",
+            "定食",
             "おにぎり",
-            "ごはん",
             "パン",
+            "ごはん",
+            "サンドイッチ",
+            "そば",
+            "うどん",
+            "パスタ",
+            "寿司",
+            "焼肉",
+            "ハンバーガー",
+            "弁当",
+            "サラダ",
+            "唐揚げ",
+            "味噌汁",
         ]
-        return any(word in text for word in meal_words)
+        register_words = ["登録", "記録", "追加", "入れて", "登録して", "残して"]
+        return (
+            any(word in text for word in temporal_words)
+            and any(word in text for word in food_words)
+        ) or (
+            any(word in text for word in register_words)
+            and any(word in text for word in food_words + ["朝食", "昼食", "夕食", "夜食"])
+        )
 
     @staticmethod
     def _meal_matches_daypart(meal: MealRecord, daypart: str) -> bool:
