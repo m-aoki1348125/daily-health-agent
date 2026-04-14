@@ -182,6 +182,12 @@ class ClaudeProvider(LLMProvider):
             model=model_name,
             max_tokens=1200,
             system=_system_prompt(),
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": _advice_json_schema(),
+                }
+            },
             messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         )
         return "".join(
@@ -274,10 +280,51 @@ def _system_prompt() -> str:
         "today_actions は今日すぐ実行できる控えめで具体的な行動提案にしてください。"
         "long_term_comment は weekly_trends、monthly_trends、過去パターンを踏まえた"
         "中長期の分析コメントにしてください。"
-        "厳密な JSON のみを返し、キーは "
-        "risk_level, summary, key_findings, today_actions, exercise_advice, sleep_advice, "
-        "caffeine_advice, medical_note, long_term_comment のみを含めてください。"
+        "出力形式は API 側で JSON schema により強制されます。"
+        "各フィールドの中身だけを自然な日本語で埋めてください。"
     )
+
+
+def _advice_json_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "risk_level",
+            "summary",
+            "key_findings",
+            "today_actions",
+            "exercise_advice",
+            "sleep_advice",
+            "caffeine_advice",
+            "medical_note",
+            "long_term_comment",
+        ],
+        "properties": {
+            "risk_level": {
+                "type": "string",
+                "enum": ["green", "yellow", "red", "Green", "Yellow", "Red"],
+            },
+            "summary": {"type": "string"},
+            "key_findings": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 4,
+                "items": {"type": "string"},
+            },
+            "today_actions": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 4,
+                "items": {"type": "string"},
+            },
+            "exercise_advice": {"type": "string"},
+            "sleep_advice": {"type": "string"},
+            "caffeine_advice": {"type": "string"},
+            "medical_note": {"type": "string"},
+            "long_term_comment": {"type": "string"},
+        },
+    }
 
 
 def _meal_system_prompt() -> str:
