@@ -308,14 +308,10 @@ def _advice_json_schema() -> dict[str, Any]:
             "summary": {"type": "string"},
             "key_findings": {
                 "type": "array",
-                "minItems": 2,
-                "maxItems": 4,
                 "items": {"type": "string"},
             },
             "today_actions": {
                 "type": "array",
-                "minItems": 2,
-                "maxItems": 4,
                 "items": {"type": "string"},
             },
             "exercise_advice": {"type": "string"},
