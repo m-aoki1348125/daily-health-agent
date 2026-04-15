@@ -320,6 +320,85 @@ def test_health_chat_service_answers_exercise_question(
     assert "今日運動するとしたら何が最適" in message
 
 
+def test_health_chat_service_ignores_heading_only_meal_lines(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    service = build_service(session, settings, tmp_path)
+
+    message = service.handle_text_message(
+        text="夜ご飯\n梅チキンカツ弁当\nチャーハン半皿\nカツオ竜田揚げ",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 15, 23, 54, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meals = MealRepository(session).list_for_user_and_date("U-test", date(2026, 4, 15))
+    assert len(meals) == 3
+    assert all(meal.summary != "夜ご飯" for meal in meals)
+    assert "3 件追加登録" in message
+    assert "夜ご飯 / 400 kcal" not in message
+
+
+def test_health_chat_service_removes_heading_only_meal_by_title_correction(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    session.add_all(
+        [
+            MealRecord(
+                source_message_id="meal-title",
+                meal_date=date(2026, 4, 15),
+                consumed_at=datetime(2026, 4, 15, 19, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+                line_user_id="U-test",
+                image_mime_type="text/plain",
+                estimated_calories=400,
+                confidence="medium",
+                summary="夜ご飯",
+                meal_items_json=["夜ご飯"],
+                rationale="line text registration",
+                provider="mock",
+                model_name="mock",
+            ),
+            MealRecord(
+                source_message_id="meal-bento",
+                meal_date=date(2026, 4, 15),
+                consumed_at=datetime(2026, 4, 15, 23, 54, tzinfo=ZoneInfo("Asia/Tokyo")),
+                line_user_id="U-test",
+                image_mime_type="text/plain",
+                estimated_calories=400,
+                confidence="medium",
+                summary="梅チキンカツ弁当",
+                meal_items_json=["梅チキンカツ弁当"],
+                rationale="line text registration",
+                provider="mock",
+                model_name="mock",
+            ),
+        ]
+    )
+    session.commit()
+
+    service = build_service(session, settings, tmp_path)
+    message = service.handle_text_message(
+        text="夜ご飯はタイトルであって食事本体ではありません。カロリーを修整してください。",
+        line_user_id="U-test",
+        event_timestamp_ms=int(
+            datetime(2026, 4, 15, 23, 57, tzinfo=ZoneInfo("Asia/Tokyo")).timestamp() * 1000
+        ),
+    )
+    session.commit()
+
+    meals = MealRepository(session).list_for_user_and_date("U-test", date(2026, 4, 15))
+    assert len(meals) == 1
+    assert meals[0].summary == "梅チキンカツ弁当"
+    assert "タイトル行として登録されていた食事記録を 1 件削除" in message
+    assert "現在の合計は 400 kcal" in message
+
+
 def test_health_chat_service_corrects_specific_lunch_directly(
     session: Session,
     settings: Settings,

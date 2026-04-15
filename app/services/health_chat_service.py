@@ -70,6 +70,12 @@ class HealthChatService:
         if "削除" in normalized and ("食事" in normalized or "写真" in normalized):
             return self._delete_latest_meal(line_user_id=line_user_id, target_date=target_date)
 
+        if self._looks_like_meal_heading_correction(normalized):
+            return self._remove_heading_only_meals(
+                line_user_id=line_user_id,
+                target_date=target_date,
+            )
+
         if self._looks_like_sleep_correction(normalized):
             corrected_minutes = self._parse_sleep_minutes(normalized)
             if corrected_minutes is None:
@@ -445,14 +451,19 @@ class HealthChatService:
             )
         except Exception:
             parsed = self._fallback_parse_meal_text(text)
-        if not parsed.meals:
+        candidate_meals = [
+            entry
+            for entry in parsed.meals
+            if not self._is_heading_only_meal_text(entry.summary)
+        ]
+        if not candidate_meals:
             return (
                 "食事内容を読み取れませんでした。"
                 "『朝7:30におにぎり、昼12:15にラーメン』のように送ってください。"
             )
 
         saved_meals: list[MealRecord] = []
-        for idx, entry in enumerate(parsed.meals, start=1):
+        for idx, entry in enumerate(candidate_meals, start=1):
             consumed_at = self._resolve_parsed_meal_time(
                 time_text=entry.time_text,
                 target_date=target_date,
@@ -525,6 +536,50 @@ class HealthChatService:
             )
         lines.append(f"現在の合計は {total} kcal です。")
         return "\n".join(lines)
+
+    def _remove_heading_only_meals(self, *, line_user_id: str, target_date: date) -> str:
+        meals = self.meal_repository.list_for_user_and_date(line_user_id, target_date)
+        heading_only_meals = [
+            meal for meal in meals if self._is_heading_only_meal_text(meal.summary)
+        ]
+        if not heading_only_meals:
+            return (
+                f"{target_date.isoformat()} にタイトル扱いの食事記録は見つかりませんでした。"
+                "必要なら『2番を650kcalに修正』のように指定してください。"
+            )
+
+        removed_total = sum(meal.estimated_calories for meal in heading_only_meals)
+        removed_labels = [self._format_meal_label(meal) for meal in heading_only_meals]
+        for meal in heading_only_meals:
+            self.drive_client.store_json(
+                category="corrections",
+                target_date=meal.meal_date,
+                filename=(
+                    f"{meal.meal_date.isoformat()}_{meal.source_message_id}"
+                    "_remove_heading_only_meal.json"
+                ),
+                payload={
+                    "action": "remove_heading_only_meal",
+                    "corrected_at": datetime.now(ZoneInfo(self.settings.timezone)).isoformat(),
+                    "meal_date": meal.meal_date.isoformat(),
+                    "source_message_id": meal.source_message_id,
+                    "summary": meal.summary,
+                    "estimated_calories": meal.estimated_calories,
+                    "reason": "user said the line was a title, not an actual meal",
+                },
+            )
+            self.meal_repository.delete(meal)
+
+        self.meal_repository.flush()
+        self.meal_logging_service.store_daily_summary(target_date)
+        total = self.meal_repository.sum_calories_for_date(target_date)
+        return (
+            f"{target_date.isoformat()} のタイトル行として登録されていた食事記録を "
+            f"{len(heading_only_meals)} 件削除しました。\n"
+            f"削除した推定カロリーは合計 {removed_total} kcal です。\n"
+            f"削除対象: {', '.join(removed_labels)}\n"
+            f"現在の合計は {total} kcal です。"
+        )
 
     def _store_meal_timing_hint(
         self,
@@ -733,6 +788,7 @@ class HealthChatService:
             return False
         correction_words = [
             "修正",
+            "修整",
             "訂正",
             "変更",
             "直して",
@@ -746,12 +802,21 @@ class HealthChatService:
 
     @staticmethod
     def _looks_like_meal_correction(text: str) -> bool:
-        if not any(word in text for word in ["修正", "訂正", "変更", "直して"]):
+        if not any(word in text for word in ["修正", "修整", "訂正", "変更", "直して"]):
             return False
         meal_words = ["食事", "朝食", "昼食", "ランチ", "夕食", "夜ご飯", "晩ごはん"]
         if any(word in text for word in meal_words):
             return True
         return "kcal" in text or "キロカロリー" in text
+
+    @staticmethod
+    def _looks_like_meal_heading_correction(text: str) -> bool:
+        correction_words = ["修正", "修整", "訂正", "変更", "直して", "消して", "削除"]
+        return (
+            "タイトル" in text
+            and any(word in text for word in correction_words)
+            and any(word in text for word in ["食事", "夜ご飯", "昼ご飯", "朝ご飯", "夕食"])
+        )
 
     @staticmethod
     def _looks_like_meal_timing_hint(text: str) -> bool:
@@ -806,6 +871,25 @@ class HealthChatService:
             any(word in text for word in register_words)
             and any(word in text for word in food_words + ["朝食", "昼食", "夕食", "夜食"])
         )
+
+    @staticmethod
+    def _is_heading_only_meal_text(text: str) -> bool:
+        normalized = text.strip().replace("　", " ")
+        heading_words = {
+            "朝ご飯",
+            "朝ごはん",
+            "朝食",
+            "昼ご飯",
+            "昼ごはん",
+            "昼食",
+            "夜ご飯",
+            "夜ごはん",
+            "夕食",
+            "晩ごはん",
+            "晩御飯",
+            "夜食",
+        }
+        return normalized in heading_words
 
     @staticmethod
     def _meal_matches_daypart(meal: MealRecord, daypart: str) -> bool:
@@ -907,6 +991,8 @@ class HealthChatService:
         entries: list[ParsedMealEntry] = []
         normalized = text.replace("、", "\n").replace("。", "\n")
         for line in [item.strip() for item in normalized.splitlines() if item.strip()]:
+            if self._is_heading_only_meal_text(line):
+                continue
             time_text = None
             if "朝" in line:
                 time_text = "朝"
