@@ -8,6 +8,7 @@ from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
 from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult
+from app.services.meal_image_service import prepare_meal_image_variants
 
 
 class OpenAIProvider(LLMProvider):
@@ -51,7 +52,16 @@ class OpenAIProvider(LLMProvider):
         image_bytes: bytes,
         mime_type: str,
     ) -> MealEstimateResult:
-        data_url = f"data:{mime_type};base64,{b64encode(image_bytes).decode('utf-8')}"
+        variants = prepare_meal_image_variants(image_bytes, mime_type)
+        user_content: list[dict[str, str]] = []
+        for variant in variants:
+            image_base64 = b64encode(variant.image_bytes).decode("utf-8")
+            data_url = f"data:{variant.mime_type};base64,{image_base64}"
+            user_content.append({"type": "input_image", "image_url": data_url})
+        variant_labels = [variant.label for variant in variants]
+        user_content.append(
+            {"type": "input_text", "text": _meal_prompt(prompt, variant_labels)}
+        )
         meal_input = cast(
             Any,
             [
@@ -61,10 +71,7 @@ class OpenAIProvider(LLMProvider):
                 },
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {"type": "input_image", "image_url": data_url},
-                    ],
+                    "content": user_content,
                 },
             ],
         )
@@ -160,13 +167,23 @@ def _system_prompt() -> str:
 
 def _meal_system_prompt() -> str:
     return (
-        "あなたは食事写真を見て推定摂取カロリーを算出する栄養ログ補助AIです。"
-        "医師ではありません。食事画像だけから保守的に見積もってください。"
-        "見えない情報は断定せず、一般的な一人前を前提に推定してください。"
-        "厳密な JSON のみを返し、キーは estimated_calories, confidence, summary, "
-        "meal_items, rationale のみを含めてください。"
-        "estimated_calories は整数kcal、confidence は low/medium/high のいずれか、"
-        "summary と rationale は自然な日本語、meal_items は日本語の短い配列にしてください。"
+        "あなたは食事写真から摂取カロリーを推定する栄養ログ補助AIです。"
+        "画像は元画像に加えてズーム用の切り抜きが含まれることがあります。"
+        "同じ料理を重複カウントせず、料理単位で内訳を見積もってから合計kcalを算出してください。"
+        "見えない情報は断定せず、一般的な日本の一人前を保守的に前提にしてください。"
+        "厳密な JSON のみを返し、キーは estimated_calories, calorie_range_low, calorie_range_high, "
+        "confidence, summary, meal_items, components, rationale のみを含めてください。"
+        "components は item_name, estimated_calories, portion_basis を持つ配列です。"
+    )
+
+
+def _meal_prompt(prompt: str, variant_labels: list[str]) -> str:
+    return (
+        "画像をよく観察し、料理ごとに分解して推定してください。"
+        f"画像セット: {', '.join(variant_labels)}。"
+        "容器サイズ、米量、衣、ソース、半皿表現、付け合わせも確認してください。"
+        "estimated_calories は components の合計と整合するように返してください。"
+        f"食事コンテキスト: {prompt}"
     )
 
 

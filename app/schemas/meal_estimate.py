@@ -6,11 +6,20 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class MealComponentEstimate(BaseModel):
+    item_name: str
+    estimated_calories: int = Field(ge=0)
+    portion_basis: str
+
+
 class MealEstimateResult(BaseModel):
     estimated_calories: int = Field(ge=0)
+    calorie_range_low: int | None = Field(default=None, ge=0)
+    calorie_range_high: int | None = Field(default=None, ge=0)
     confidence: str
     summary: str
     meal_items: list[str] = Field(default_factory=list)
+    components: list[MealComponentEstimate] = Field(default_factory=list)
     rationale: str
     provider: str
     model_name: str

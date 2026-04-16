@@ -3,7 +3,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, cast
 
-from app.clients.llm_claude import ClaudeProvider, _advice_json_schema
+from PIL import Image
+
+from app.clients.llm_claude import ClaudeProvider, _advice_json_schema, _meal_json_schema
+from app.services.meal_image_service import prepare_meal_image_variants
 
 
 def test_advice_json_schema_requires_expected_fields() -> None:
@@ -48,3 +51,25 @@ def test_claude_provider_uses_structured_output_for_advice() -> None:
     assert isinstance(format_config, dict)
     assert format_config["type"] == "json_schema"
     assert format_config["schema"] == _advice_json_schema()
+
+
+def test_meal_json_schema_requires_components_and_range() -> None:
+    schema = _meal_json_schema()
+
+    assert "components" in schema["required"]
+    assert "calorie_range_low" in schema["required"]
+    assert "calorie_range_high" in schema["required"]
+
+
+def test_prepare_meal_image_variants_returns_zoomed_views_for_large_images() -> None:
+    image = Image.new("RGB", (1200, 1600), color=(240, 240, 240))
+    from io import BytesIO
+
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG")
+
+    variants = prepare_meal_image_variants(buffer.getvalue(), "image/jpeg")
+
+    assert len(variants) >= 2
+    assert variants[0].label == "original"
+    assert any(variant.label in {"center_crop", "lower_focus"} for variant in variants[1:])

@@ -11,6 +11,7 @@ from app.clients.llm_base import LLMProvider
 from app.config.settings import Settings
 from app.schemas.advice_result import AdviceResult
 from app.schemas.meal_estimate import MealEstimateResult, MealTextParseResult
+from app.services.meal_image_service import prepare_meal_image_variants
 
 
 class ClaudeProvider(LLMProvider):
@@ -48,28 +49,34 @@ class ClaudeProvider(LLMProvider):
         mime_type: str,
     ) -> MealEstimateResult:
         model_name = self._resolve_model_name()
-        content_blocks = cast(
-            Any,
-            [
-                {"type": "text", "text": prompt},
+        variants = prepare_meal_image_variants(image_bytes, mime_type)
+        content_blocks: list[dict[str, Any]] = []
+        for variant in variants:
+            content_blocks.append(
                 {
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": mime_type,
-                        "data": b64encode(image_bytes).decode("utf-8"),
+                        "media_type": variant.mime_type,
+                        "data": b64encode(variant.image_bytes).decode("utf-8"),
                     },
-                },
-            ],
-        )
+                }
+            )
+        content_blocks.append({"type": "text", "text": _meal_prompt(prompt, variants=variants)})
         message = self.client.messages.create(
             model=model_name,
             max_tokens=700,
             system=_meal_system_prompt(),
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": _meal_json_schema(),
+                }
+            },
             messages=[
                 {
                     "role": "user",
-                    "content": content_blocks,
+                    "content": cast(Any, content_blocks),
                 }
             ],
         )
@@ -325,14 +332,84 @@ def _advice_json_schema() -> dict[str, Any]:
 
 def _meal_system_prompt() -> str:
     return (
-        "あなたは食事写真を見て推定摂取カロリーを算出する栄養ログ補助AIです。"
-        "医師ではありません。食事画像だけから保守的に見積もってください。"
-        "見えない情報は断定せず、一般的な一人前を前提に推定してください。"
-        "厳密なJSONのみを返してください。"
-        "キーは estimated_calories, confidence, summary, meal_items, rationale のみです。"
-        "estimated_calories は整数kcal、confidence は low/medium/high のいずれか、"
-        "summary と rationale は自然な日本語、meal_items は日本語の短い配列にしてください。"
+        "あなたは食事写真から摂取カロリーを推定する栄養ログ補助AIです。"
+        "医師ではありません。画像に写る事実だけを使い、見えない情報は保守的に扱ってください。"
+        "与えられる画像には元画像に加えてズーム用の切り抜きが含まれることがあります。"
+        "複数画像は同じ1食を別視点で見たものとして統合し、重複カウントしないでください。"
+        "まず料理ごとに分解して量を推定し、その合計として総カロリーを出してください。"
+        "容器サイズ、弁当の区画、丼や皿の面積、衣の厚さ、米の量、ソース量、半皿表現を丁寧に見てください。"
+        "飲み物、汁物、小鉢、付け合わせが見える場合は含めてください。"
+        "判断が難しいときは、一般的な日本の外食・弁当の一人前を基準にしつつ、過大推定を避けてください。"
+        "few-shot examples:\n"
+        "<example>\n"
+        "input: 唐揚げ弁当の写真\n"
+        "output: 唐揚げ 320kcal, ごはん 280kcal, 副菜 40kcal, 合計 640kcal\n"
+        "</example>\n"
+        "<example>\n"
+        "input: 牛丼並盛の写真\n"
+        "output: 牛丼 680kcal, 味噌汁 35kcal, 合計 715kcal\n"
+        "</example>\n"
+        "<example>\n"
+        "input: 炒飯半皿の写真\n"
+        "output: 炒飯半皿 310kcal, 合計 310kcal\n"
+        "</example>\n"
+        "出力形式は API 側で JSON schema により強制されます。"
     )
+
+
+def _meal_prompt(prompt: str, *, variants: list[Any]) -> str:
+    labels = ", ".join(str(variant.label) for variant in variants)
+    return (
+        "<instructions>"
+        "画像をよく観察し、見える料理を料理単位で列挙してください。"
+        "各料理について推定kcalと量の根拠を短く出し、最後に合計kcalを返してください。"
+        "summary には食事全体の説明を1文で、meal_items には料理名だけを入れてください。"
+        "components には料理ごとの kcal と portion_basis を入れてください。"
+        "calorie_range_low/high は保守的な下限・上限を整数で返してください。"
+        "estimated_calories は components の合計と整合する値にしてください。"
+        "</instructions>"
+        f"<image_set>{labels}</image_set>"
+        f"<meal_context>{prompt}</meal_context>"
+    )
+
+
+def _meal_json_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "estimated_calories",
+            "calorie_range_low",
+            "calorie_range_high",
+            "confidence",
+            "summary",
+            "meal_items",
+            "components",
+            "rationale",
+        ],
+        "properties": {
+            "estimated_calories": {"type": "integer", "minimum": 0},
+            "calorie_range_low": {"type": "integer", "minimum": 0},
+            "calorie_range_high": {"type": "integer", "minimum": 0},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "summary": {"type": "string"},
+            "meal_items": {"type": "array", "items": {"type": "string"}},
+            "components": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["item_name", "estimated_calories", "portion_basis"],
+                    "properties": {
+                        "item_name": {"type": "string"},
+                        "estimated_calories": {"type": "integer", "minimum": 0},
+                        "portion_basis": {"type": "string"},
+                    },
+                },
+            },
+            "rationale": {"type": "string"},
+        },
+    }
 
 
 def _health_question_system_prompt() -> str:
