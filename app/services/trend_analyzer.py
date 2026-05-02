@@ -15,6 +15,7 @@ class TrendAnalyzer:
     def build(self, current: DailyMetricInput, history: list[DailyMetric]) -> TrendContext:
         sleep_window = [m.sleep_minutes for m in history[:14] if m.sleep_minutes is not None]
         hr_window = [m.resting_hr for m in history[:30] if m.resting_hr is not None]
+        weight_window = [m.weight_kg for m in history[:30] if m.weight_kg is not None]
         meal_window = [m.meal_calories for m in history[:7] if m.meal_calories is not None]
         bedtime_window = [
             bedtime
@@ -37,6 +38,11 @@ class TrendAnalyzer:
             if meal_window and current.meal_calories is not None
             else None
         )
+        weight_kg_vs_30d_avg = (
+            current.weight_kg - mean(weight_window)
+            if weight_window and current.weight_kg is not None
+            else None
+        )
         bedtime_drift = None
         current_bedtime = self._extract_bedtime_minutes_from_current(current)
         if bedtime_window and current_bedtime is not None:
@@ -54,6 +60,11 @@ class TrendAnalyzer:
             weekly_trends.append("活動量に対して回復が追いついていません")
         if meal_calories_vs_7d_avg is not None and meal_calories_vs_7d_avg > 0:
             weekly_trends.append("最近1週間より食事量がやや多めです")
+        if weight_kg_vs_30d_avg is not None:
+            if weight_kg_vs_30d_avg >= 1.0:
+                monthly_trends.append("体重が直近30日平均より高めです")
+            elif weight_kg_vs_30d_avg <= -1.0:
+                monthly_trends.append("体重が直近30日平均より低めです")
         if current.meal_calories is not None and current.calories > 0:
             calorie_balance = current.meal_calories - current.calories
             if calorie_balance > self.settings.meal_calorie_balance_alert_delta:
@@ -64,6 +75,7 @@ class TrendAnalyzer:
                 date=current.date,
                 sleep_vs_14d_avg=sleep_vs_14d_avg,
                 resting_hr_vs_30d_avg=resting_hr_vs_30d_avg,
+                weight_kg_vs_30d_avg=weight_kg_vs_30d_avg,
                 meal_calories_vs_7d_avg=meal_calories_vs_7d_avg,
                 sleep_debt_streak_days=streak,
                 bedtime_drift_minutes=bedtime_drift,
@@ -82,6 +94,10 @@ class TrendAnalyzer:
                     resting_hr=m.resting_hr,
                     steps=m.steps or 0,
                     calories=m.calories or 0,
+                    weight_kg=m.weight_kg,
+                    bmi=m.bmi,
+                    body_fat_percent=m.body_fat_percent,
+                    body_logged_at=m.body_logged_at,
                     meal_calories=m.meal_calories,
                     raw_drive_file_id=m.raw_drive_file_id,
                     bedtime_start=m.bedtime_start,

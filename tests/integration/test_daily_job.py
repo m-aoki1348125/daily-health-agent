@@ -9,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.batch.run_daily_job import run
+from app.clients.google_health_client import GoogleHealthBodyRaw
 from app.config.settings import Settings
 from app.db.models import AdviceHistory, DailyMetric, DriveIndex, MealRecord, TrendFeature
-from app.schemas.health_features import ActivitySummary, FitbitDayRaw, SleepSummary
+from app.schemas.health_features import ActivitySummary, BodySummary, FitbitDayRaw, SleepSummary
 
 
 def test_daily_job_end_to_end(session: Session, settings: Settings) -> None:
@@ -100,6 +101,14 @@ def test_daily_job_uses_today_sleep_and_yesterday_activity_sources(
                     steps=5000 + offset,
                     calories=2000 + offset,
                 ),
+                body=BodySummary(
+                    weight_kg=None if target_date == date(2026, 4, 2) else 64.2,
+                    bmi=None if target_date == date(2026, 4, 2) else 21.9,
+                    body_fat_percent=None if target_date == date(2026, 4, 2) else 18.4,
+                    logged_at=None
+                    if target_date == date(2026, 4, 2)
+                    else f"{target_date.isoformat()}T23:40:00",
+                ),
                 raw_payload={"date": target_date.isoformat()},
             )
 
@@ -117,3 +126,65 @@ def test_daily_job_uses_today_sleep_and_yesterday_activity_sources(
     assert metric is not None
     assert metric.sleep_minutes == 301
     assert metric.steps == 5000
+    assert metric.weight_kg == 64.2
+
+
+def test_daily_job_uses_google_health_body_source(
+    session: Session,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings.historical_bootstrap_enabled = False
+    settings.body_data_source = "google_health"
+    fetched_body_dates: list[date] = []
+
+    class RecordingFitbitClient:
+        def fetch_day(self, target_date: date) -> FitbitDayRaw:
+            return FitbitDayRaw(
+                date=target_date,
+                sleep=SleepSummary(
+                    total_minutes=420,
+                    efficiency=90.0,
+                    deep_minutes=60,
+                    rem_minutes=70,
+                    awakenings=1,
+                    start_time=f"{target_date.isoformat()}T00:15:00+09:00",
+                ),
+                resting_hr=55,
+                activity=ActivitySummary(steps=5000, calories=2000),
+                body=BodySummary(weight_kg=99.9, body_fat_percent=40.0),
+                raw_payload={"date": target_date.isoformat()},
+            )
+
+    class RecordingGoogleHealthClient:
+        def fetch_body(self, target_date: date) -> GoogleHealthBodyRaw:
+            fetched_body_dates.append(target_date)
+            return GoogleHealthBodyRaw(
+                date=target_date,
+                body=BodySummary(
+                    weight_kg=64.2 if target_date == date(2026, 4, 2) else None,
+                    body_fat_percent=18.4 if target_date == date(2026, 4, 2) else None,
+                    source="google_health",
+                    logged_at=target_date.isoformat(),
+                ),
+                raw_payload={"date": target_date.isoformat(), "source": "google_health"},
+            )
+
+    monkeypatch.setattr(
+        "app.batch.run_daily_job.build_fitbit_client",
+        lambda _: RecordingFitbitClient(),
+    )
+    monkeypatch.setattr(
+        "app.batch.run_daily_job.build_google_health_client",
+        lambda _: RecordingGoogleHealthClient(),
+    )
+
+    result = run(session, settings)
+    session.commit()
+
+    metric = session.get(DailyMetric, date(2026, 4, 2))
+    assert result["date"] == "2026-04-02"
+    assert fetched_body_dates == [date(2026, 4, 2), date(2026, 4, 1)]
+    assert metric is not None
+    assert metric.weight_kg == 64.2
+    assert metric.body_fat_percent == 18.4

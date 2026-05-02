@@ -4,14 +4,14 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 import google.auth
 import httpx
 from google.cloud import secretmanager
 
 from app.config.settings import Settings
-from app.schemas.health_features import ActivitySummary, FitbitDayRaw, SleepSummary
+from app.schemas.health_features import ActivitySummary, BodySummary, FitbitDayRaw, SleepSummary
 
 
 class FitbitClient(ABC):
@@ -33,12 +33,20 @@ class MockFitbitClient(FitbitClient):
             },
             "resting_hr": 59,
             "activity": {"steps": 8420, "calories": 2150},
+            "body": {
+                "weight_kg": 64.2,
+                "bmi": 21.9,
+                "body_fat_percent": 18.4,
+                "source": "mock",
+                "logged_at": f"{target_date.isoformat()}T07:10:00",
+            },
         }
         return FitbitDayRaw(
             date=target_date,
             sleep=SleepSummary(**raw_payload["sleep"]),
             resting_hr=raw_payload["resting_hr"],
             activity=ActivitySummary(**raw_payload["activity"]),
+            body=BodySummary(**raw_payload["body"]),
             raw_payload=raw_payload,
         )
 
@@ -75,15 +83,33 @@ class FitbitApiClient(FitbitClient):
             f"{self.settings.fitbit_base_url}/1/user/-/activities/date/"
             f"{target_date.isoformat()}.json"
         )
+        weight_url = (
+            f"{self.settings.fitbit_base_url}/1/user/-/body/log/weight/date/"
+            f"{target_date.isoformat()}.json"
+        )
+        fat_url = (
+            f"{self.settings.fitbit_base_url}/1/user/-/body/log/fat/date/"
+            f"{target_date.isoformat()}.json"
+        )
         with self._build_client() as client:
             sleep_resp = self._send_with_retry(client, "GET", sleep_url, headers=headers)
             hr_resp = self._send_with_retry(client, "GET", hr_url, headers=headers)
             activity_resp = self._send_with_retry(client, "GET", activity_url, headers=headers)
+            weight_json = self._fetch_optional_body_json(
+                client, weight_url, headers=headers, endpoint_name="body_weight"
+            )
+            fat_json = self._fetch_optional_body_json(
+                client, fat_url, headers=headers, endpoint_name="body_fat"
+            )
         sleep_json = sleep_resp.json()
         hr_json = hr_resp.json()
         activity_json = activity_resp.json()
         sleep_records = sleep_json.get("sleep") or []
         aggregated_sleep = _aggregate_sleep_records(sleep_records)
+        body_summary = _build_body_summary(
+            weight_json.get("weight") or [],
+            fat_json.get("fat") or [],
+        )
         summary = activity_json.get("summary", {})
         resting_hr = None
         value_list = hr_json.get("activities-heart", [])
@@ -93,6 +119,8 @@ class FitbitApiClient(FitbitClient):
             "sleep": sleep_json,
             "heart": hr_json,
             "activity": activity_json,
+            "body_weight": weight_json,
+            "body_fat": fat_json,
         }
         return FitbitDayRaw(
             date=target_date,
@@ -102,6 +130,7 @@ class FitbitApiClient(FitbitClient):
                 steps=int(summary.get("steps", 0)),
                 calories=int(summary.get("caloriesOut", 0)),
             ),
+            body=body_summary,
             raw_payload=raw_payload,
         )
 
@@ -182,6 +211,29 @@ class FitbitApiClient(FitbitClient):
         except ValueError:
             return 2.0
 
+    def _fetch_optional_body_json(
+        self,
+        client: httpx.Client,
+        url: str,
+        *,
+        headers: dict[str, str],
+        endpoint_name: str,
+    ) -> dict[str, Any]:
+        try:
+            return cast(
+                dict[str, Any],
+                self._send_with_retry(client, "GET", url, headers=headers).json(),
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code not in {403, 404}:
+                raise
+            self.logger.warning(
+                "fitbit body endpoint unavailable",
+                extra={"endpoint": endpoint_name, "status_code": status_code},
+            )
+            return {}
+
     def _store_refresh_token(self, refresh_token: str) -> None:
         try:
             _, project_id = google.auth.default()
@@ -247,6 +299,51 @@ def _aggregate_sleep_records(records: list[dict[str, Any]]) -> SleepSummary:
         rem_minutes=rem_minutes,
         awakenings=awakenings,
         start_time=start_time,
+    )
+
+
+def _latest_log(logs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not logs:
+        return None
+    return max(logs, key=lambda item: f"{item.get('date', '')}T{item.get('time', '')}")
+
+
+def _as_optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_logged_at(log: dict[str, Any] | None) -> str | None:
+    if not log:
+        return None
+    log_date = log.get("date")
+    log_time = log.get("time")
+    if log_date and log_time:
+        return f"{log_date}T{log_time}"
+    if log_date:
+        return str(log_date)
+    return None
+
+
+def _build_body_summary(
+    weight_logs: list[dict[str, Any]],
+    fat_logs: list[dict[str, Any]],
+) -> BodySummary:
+    weight_log = _latest_log(weight_logs)
+    fat_log = _latest_log(fat_logs)
+    body_fat = _as_optional_float(weight_log.get("fat")) if weight_log else None
+    if body_fat is None and fat_log:
+        body_fat = _as_optional_float(fat_log.get("fat"))
+    return BodySummary(
+        weight_kg=_as_optional_float(weight_log.get("weight")) if weight_log else None,
+        bmi=_as_optional_float(weight_log.get("bmi")) if weight_log else None,
+        body_fat_percent=body_fat,
+        source=str(weight_log.get("source")) if weight_log and weight_log.get("source") else None,
+        logged_at=_build_logged_at(weight_log or fat_log),
     )
 
 

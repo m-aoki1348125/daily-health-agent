@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.drive_client import build_drive_client
 from app.clients.fitbit_client import build_fitbit_client
+from app.clients.google_health_client import build_google_health_client
 from app.clients.line_client import build_line_client
 from app.clients.llm_factory import build_llm_provider
 from app.config.logging import configure_logging
@@ -18,7 +19,7 @@ from app.repositories.advice_repository import AdviceRepository
 from app.repositories.drive_index_repository import DriveIndexRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.metrics_repository import MetricsRepository
-from app.schemas.health_features import FitbitDayRaw
+from app.schemas.health_features import BodySummary, FitbitDayRaw
 from app.services.feature_builder import FeatureBuilder
 from app.services.history_bootstrap_service import HistoryBootstrapService
 from app.services.notification_service import NotificationService
@@ -64,6 +65,29 @@ def _select_sleep_snapshot(
     if preferred_sleep.start_time:
         return preferred, False
     return fallback, True
+
+
+def _select_body_summary(
+    *,
+    preferred: BodySummary,
+    fallback: BodySummary,
+) -> tuple[BodySummary, bool]:
+    if _has_body_metrics(preferred):
+        return preferred, False
+    if _has_body_metrics(fallback):
+        return fallback, True
+    return preferred, False
+
+
+def _has_body_metrics(body: BodySummary) -> bool:
+    return any(
+        value is not None
+        for value in (
+            body.weight_kg,
+            body.bmi,
+            body.body_fat_percent,
+        )
+    )
 
 
 def run(session: Session, settings: Settings) -> dict[str, str]:
@@ -116,21 +140,53 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
         preferred=sleep_day_raw,
         fallback=activity_day_raw,
     )
+    body_raw_payload: dict[str, object] = {}
+    if settings.body_data_source == "google_health":
+        google_health_client = build_google_health_client(settings)
+        sleep_body_raw = google_health_client.fetch_body(report_window.sleep_source_date)
+        activity_body_raw = (
+            sleep_body_raw
+            if report_window.activity_source_date == report_window.sleep_source_date
+            else google_health_client.fetch_body(report_window.activity_source_date)
+        )
+        preferred_body = sleep_body_raw.body
+        fallback_body = activity_body_raw.body
+        body_raw_payload = {
+            "sleep_day": sleep_body_raw.raw_payload,
+            "activity_day": activity_body_raw.raw_payload,
+        }
+    else:
+        preferred_body = sleep_day_raw.body
+        fallback_body = activity_day_raw.body
+    selected_body, body_fallback_used = _select_body_summary(
+        preferred=preferred_body,
+        fallback=fallback_body,
+    )
+    body_source_date = (
+        report_window.activity_source_date
+        if body_fallback_used
+        else report_window.sleep_source_date
+    )
     raw_payload = {
         "report_date": report_date.isoformat(),
         "sources": {
             "sleep": report_window.sleep_source_date.isoformat(),
             "activity": report_window.activity_source_date.isoformat(),
+            "body": report_window.sleep_source_date.isoformat(),
+            "body_data_source": settings.body_data_source,
             "meal": report_window.meal_source_date.isoformat(),
             "sleep_fallback_used": sleep_fallback_used,
+            "body_fallback_used": body_fallback_used,
             "sleep_effective_source": (
                 report_window.activity_source_date.isoformat()
                 if sleep_fallback_used
                 else report_window.sleep_source_date.isoformat()
             ),
+            "body_effective_source": body_source_date.isoformat(),
         },
         "sleep_day": sleep_day_raw.raw_payload,
         "activity_day": activity_day_raw.raw_payload,
+        "google_health_body": body_raw_payload,
     }
     raw_filename = f"{report_date.isoformat()}_fitbit_raw.json"
     raw_file_id = drive_client.store_json(
@@ -146,6 +202,7 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
         update={
             "date": report_date,
             "activity": activity_day_raw.activity,
+            "body": selected_body,
             "raw_payload": raw_payload,
         }
     )
@@ -179,6 +236,9 @@ def run(session: Session, settings: Settings) -> dict[str, str]:
         source_summary={
             "sleep_source_date": report_window.sleep_source_date.isoformat(),
             "activity_source_date": report_window.activity_source_date.isoformat(),
+            "body_source_date": body_source_date.isoformat(),
+            "body_data_source": settings.body_data_source,
+            "body_fallback_used": body_fallback_used,
             "meal_source_date": report_window.meal_source_date.isoformat(),
             "sleep_fallback_used": sleep_fallback_used,
         },

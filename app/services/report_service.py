@@ -36,6 +36,11 @@ class ReportService:
             "meal_calories_vs_7d_avg": trend_context.current.meal_calories_vs_7d_avg,
             "fitbit_calories_burned": metrics.calories,
             "steps_yesterday": metrics.steps,
+            "weight_kg": metrics.weight_kg,
+            "bmi": metrics.bmi,
+            "body_fat_percent": metrics.body_fat_percent,
+            "weight_kg_vs_30d_avg": trend_context.current.weight_kg_vs_30d_avg,
+            "body_logged_at": metrics.body_logged_at,
             "sleep_debt_streak_days": trend_context.current.sleep_debt_streak_days,
             "meal_count": meal_summary.meal_count,
             "average_meal_calories": meal_summary.average_calories,
@@ -95,6 +100,13 @@ class ReportService:
                         ["☀️ 活動リズム: 無理のない範囲で活動できています"]
                         if metrics.steps >= 6000
                         else ["⛅ 活動リズム: 軽い歩行で体を整えたい日です"]
+                    ),
+                    *(
+                        [
+                            "⛅ 体組成: 体重データも含めて中長期の傾向を見ています"
+                        ]
+                        if metrics.weight_kg is not None
+                        else []
                     ),
                     *(
                         ["🌧️ 食事バランス: 食事量が最近より多く、配分の見直し余地があります"]
@@ -219,6 +231,8 @@ class ReportService:
 - Sleep: {metrics.sleep_minutes} minutes
 - Resting HR: {metrics.resting_hr}
 - Steps: {metrics.steps}
+- Weight: {metrics.weight_kg} kg
+- Body fat: {metrics.body_fat_percent} %
 - Meal calories: {metrics.meal_calories}
 - Meal count: {report.meal_summary.meal_count}
 - Recovery score: {trends.recovery_score}

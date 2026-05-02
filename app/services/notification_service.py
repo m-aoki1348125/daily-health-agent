@@ -24,6 +24,9 @@ class NotificationService:
         activity_source_date = str(
             report.source_summary.get("activity_source_date", report.date.isoformat())
         )
+        body_source_date = str(
+            report.source_summary.get("body_source_date", report.date.isoformat())
+        )
         meal_source_date = str(
             report.source_summary.get("meal_source_date", report.date.isoformat())
         )
@@ -35,6 +38,7 @@ class NotificationService:
         )
         condition_text = self._build_condition_text(report.rule_evaluation.risk_level)
         resting_hr_text = self._build_resting_hr_text(report)
+        body_text = self._build_body_text(report)
         body_condition_lines = self._build_body_condition_lines(report)
         today_actions = "\n".join(f"- {item}" for item in advice.today_actions[:3])
         if not today_actions:
@@ -70,6 +74,7 @@ class NotificationService:
             f"📌 きょうの記録\n"
             f"🛌 {sleep_line}\n"
             f"🫀 安静時心拍: {resting_hr_text}\n"
+            f"⚖️ 体組成 ({body_source_date}): {body_text}\n"
             f"👣 昨日の歩数 ({activity_source_date}): {report.metrics.steps:,}歩\n"
             f"🍽️ 昨日の食事 ({meal_source_date}): {self._build_meal_text(report)}\n\n"
             f"━━━━━━━━━━\n"
@@ -184,6 +189,25 @@ class NotificationService:
         if meal_delta is None:
             return f"{meal_count}回 / 推定 {meal_calories:,} kcal（比較データを蓄積中）"
         return f"{meal_count}回 / 推定 {meal_calories:,} kcal（7日平均より {meal_delta:+.0f} kcal）"
+
+    @staticmethod
+    def _build_body_text(report: DailyReport) -> str:
+        weight = report.metrics.weight_kg
+        body_fat = report.metrics.body_fat_percent
+        delta = report.trends.weight_kg_vs_30d_avg
+        if weight is None and body_fat is None:
+            return "未取得（Fitbit の body/weight scope と同期状況を確認してください）"
+        parts: list[str] = []
+        if weight is not None:
+            weight_text = f"{weight:.1f} kg"
+            if delta is None:
+                weight_text = f"{weight_text}（30日平均との差分は未算出）"
+            else:
+                weight_text = f"{weight_text}（30日平均より {delta:+.1f} kg）"
+            parts.append(weight_text)
+        if body_fat is not None:
+            parts.append(f"体脂肪 {body_fat:.1f}%")
+        return " / ".join(parts)
 
     def send(self, report: DailyReport) -> str:
         message = self.build_message(report)

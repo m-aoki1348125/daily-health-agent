@@ -30,41 +30,47 @@ locals {
     "drive-oauth-refresh-token",
   ]
   plain_env = {
-    APP_ENV            = var.environment
-    TIMEZONE           = var.timezone
-    FITBIT_CLIENT_MODE = "api"
-    GOOGLE_DRIVE_MODE  = "api"
-    LINE_CLIENT_MODE   = "api"
-    LINE_USER_ID       = var.line_user_id
-    LINE_RESTRICT_TO_CONFIGURED_USER = tostring(var.line_restrict_to_configured_user)
-    LLM_PROVIDER       = var.llm_provider
-    LLM_MODEL_NAME     = var.llm_model_name
-    DATABASE_URL       = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
+    APP_ENV                                = var.environment
+    TIMEZONE                               = var.timezone
+    FITBIT_CLIENT_MODE                     = "api"
+    BODY_DATA_SOURCE                       = "google_health"
+    GOOGLE_HEALTH_EXPECTED_USER_ID         = "5790413039236460181"
+    GOOGLE_HEALTH_ALLOWED_SOURCE_PLATFORMS = "FITBIT_WEB_API"
+    GOOGLE_DRIVE_MODE                      = "api"
+    LINE_CLIENT_MODE                       = "api"
+    LINE_USER_ID                           = var.line_user_id
+    LINE_RESTRICT_TO_CONFIGURED_USER       = tostring(var.line_restrict_to_configured_user)
+    LLM_PROVIDER                           = var.llm_provider
+    LLM_MODEL_NAME                         = var.llm_model_name
+    DATABASE_URL                           = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
   }
   secret_env = {
-    FITBIT_CLIENT_ID          = { secret = "fitbit-client-id", version = "latest" }
-    FITBIT_CLIENT_SECRET      = { secret = "fitbit-client-secret", version = "latest" }
-    FITBIT_REFRESH_TOKEN      = { secret = "fitbit-refresh-token", version = "latest" }
-    OPENAI_API_KEY            = { secret = "openai-api-key", version = "latest" }
-    CLAUDE_API_KEY            = { secret = "claude-api-key", version = "latest" }
-    LINE_CHANNEL_ACCESS_TOKEN = { secret = "line-channel-access-token", version = "latest" }
-    LINE_CHANNEL_SECRET       = { secret = "line-channel-secret", version = "latest" }
-    DRIVE_ROOT_FOLDER_ID      = { secret = "drive-root-folder-id", version = "latest" }
-    DRIVE_OAUTH_CLIENT_ID     = { secret = "drive-oauth-client-id", version = "latest" }
-    DRIVE_OAUTH_CLIENT_SECRET = { secret = "drive-oauth-client-secret", version = "latest" }
-    DRIVE_OAUTH_REFRESH_TOKEN = { secret = "drive-oauth-refresh-token", version = "latest" }
+    FITBIT_CLIENT_ID            = { secret = "fitbit-client-id", version = "latest" }
+    FITBIT_CLIENT_SECRET        = { secret = "fitbit-client-secret", version = "latest" }
+    FITBIT_REFRESH_TOKEN        = { secret = "fitbit-refresh-token", version = "latest" }
+    GOOGLE_HEALTH_CLIENT_ID     = { secret = "google-health-client-id", version = "latest" }
+    GOOGLE_HEALTH_CLIENT_SECRET = { secret = "google-health-client-secret", version = "latest" }
+    GOOGLE_HEALTH_REFRESH_TOKEN = { secret = "google-health-refresh-token", version = "latest" }
+    OPENAI_API_KEY              = { secret = "openai-api-key", version = "latest" }
+    CLAUDE_API_KEY              = { secret = "claude-api-key", version = "latest" }
+    LINE_CHANNEL_ACCESS_TOKEN   = { secret = "line-channel-access-token", version = "latest" }
+    LINE_CHANNEL_SECRET         = { secret = "line-channel-secret", version = "latest" }
+    DRIVE_ROOT_FOLDER_ID        = { secret = "drive-root-folder-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_ID       = { secret = "drive-oauth-client-id", version = "latest" }
+    DRIVE_OAUTH_CLIENT_SECRET   = { secret = "drive-oauth-client-secret", version = "latest" }
+    DRIVE_OAUTH_REFRESH_TOKEN   = { secret = "drive-oauth-refresh-token", version = "latest" }
   }
   webhook_plain_env = {
-    APP_ENV            = var.environment
-    TIMEZONE           = var.timezone
-    GOOGLE_DRIVE_MODE  = "api"
-    LINE_CLIENT_MODE   = "api"
-    LINE_USER_ID       = var.line_user_id
+    APP_ENV                          = var.environment
+    TIMEZONE                         = var.timezone
+    GOOGLE_DRIVE_MODE                = "api"
+    LINE_CLIENT_MODE                 = "api"
+    LINE_USER_ID                     = var.line_user_id
     LINE_RESTRICT_TO_CONFIGURED_USER = tostring(var.line_restrict_to_configured_user)
-    LLM_PROVIDER       = var.llm_provider
-    LLM_MODEL_NAME     = var.llm_model_name
-    LINE_WEBHOOK_PATH  = var.line_webhook_path
-    DATABASE_URL       = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
+    LLM_PROVIDER                     = var.llm_provider
+    LLM_MODEL_NAME                   = var.llm_model_name
+    LINE_WEBHOOK_PATH                = var.line_webhook_path
+    DATABASE_URL                     = "postgresql+psycopg://health_agent:${var.db_password}@/health_agent?host=/cloudsql/${module.cloud_sql.instance_connection_name}"
   }
   webhook_secret_env = {
     OPENAI_API_KEY            = { secret = "openai-api-key", version = "latest" }

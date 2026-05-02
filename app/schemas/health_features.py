@@ -20,11 +20,20 @@ class ActivitySummary(BaseModel):
     calories: int
 
 
+class BodySummary(BaseModel):
+    weight_kg: float | None = None
+    bmi: float | None = None
+    body_fat_percent: float | None = None
+    source: str | None = None
+    logged_at: str | None = None
+
+
 class FitbitDayRaw(BaseModel):
     date: date
     sleep: SleepSummary
     resting_hr: int | None = None
     activity: ActivitySummary
+    body: BodySummary = Field(default_factory=BodySummary)
     raw_payload: dict[str, Any]
 
 
@@ -38,6 +47,10 @@ class DailyMetricInput(BaseModel):
     resting_hr: int | None
     steps: int
     calories: int
+    weight_kg: float | None = None
+    bmi: float | None = None
+    body_fat_percent: float | None = None
+    body_logged_at: str | None = None
     meal_calories: int | None = None
     raw_drive_file_id: str | None = None
     bedtime_start: str | None = None
@@ -47,6 +60,7 @@ class TrendFeatureInput(BaseModel):
     date: date
     sleep_vs_14d_avg: float | None = None
     resting_hr_vs_30d_avg: float | None = None
+    weight_kg_vs_30d_avg: float | None = None
     meal_calories_vs_7d_avg: float | None = None
     sleep_debt_streak_days: int = 0
     bedtime_drift_minutes: float | None = None

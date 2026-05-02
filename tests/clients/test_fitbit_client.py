@@ -9,12 +9,37 @@ from app.clients.fitbit_client import FitbitApiClient, MockFitbitClient
 from app.config.settings import Settings
 
 
+def _body_log_response(request: httpx.Request) -> httpx.Response | None:
+    if request.url.path.startswith("/1/user/-/body/log/weight/date/"):
+        return httpx.Response(
+            200,
+            json={
+                "weight": [
+                    {
+                        "date": "2026-04-02",
+                        "time": "07:05:00",
+                        "weight": 64.2,
+                        "bmi": 21.9,
+                        "source": "API",
+                    }
+                ]
+            },
+        )
+    if request.url.path.startswith("/1/user/-/body/log/fat/date/"):
+        return httpx.Response(
+            200,
+            json={"fat": [{"date": "2026-04-02", "time": "07:05:00", "fat": 18.4}]},
+        )
+    return None
+
+
 def test_mock_fitbit_client_returns_expected_shape() -> None:
     client = MockFitbitClient()
     result = client.fetch_day(date(2026, 4, 2))
 
     assert result.sleep.total_minutes > 0
     assert result.activity.steps > 0
+    assert result.body.weight_kg is not None
     assert "sleep" in result.raw_payload
 
 
@@ -57,6 +82,9 @@ def test_fitbit_api_client_refreshes_access_token(monkeypatch: pytest.MonkeyPatc
             )
         if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
             return httpx.Response(200, json={"summary": {"steps": 1234, "caloriesOut": 2222}})
+        body_response = _body_log_response(request)
+        if body_response is not None:
+            return body_response
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     transport = httpx.MockTransport(handler)
@@ -74,6 +102,9 @@ def test_fitbit_api_client_refreshes_access_token(monkeypatch: pytest.MonkeyPatc
     assert result.sleep.total_minutes == 420
     assert result.resting_hr == 55
     assert result.activity.steps == 1234
+    assert result.body.weight_kg == 64.2
+    assert result.body.bmi == 21.9
+    assert result.body.body_fat_percent == 18.4
     assert stored_refresh_tokens == []
 
 
@@ -103,6 +134,9 @@ def test_fitbit_api_client_stores_rotated_refresh_token(monkeypatch: pytest.Monk
             return httpx.Response(200, json={"activities-heart": []})
         if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
             return httpx.Response(200, json={"summary": {"steps": 1, "caloriesOut": 2}})
+        body_response = _body_log_response(request)
+        if body_response is not None:
+            return body_response
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     transport = httpx.MockTransport(handler)
@@ -120,6 +154,48 @@ def test_fitbit_api_client_stores_rotated_refresh_token(monkeypatch: pytest.Monk
 
     assert settings.fitbit_refresh_token == "rotated-refresh-token"
     assert stored_refresh_tokens == ["rotated-refresh-token"]
+
+
+def test_fitbit_api_client_allows_missing_body_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        fitbit_client_mode="api",
+        fitbit_client_id="client-id",
+        fitbit_client_secret="client-secret",
+        fitbit_refresh_token="refresh-token",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(
+                200,
+                json={"access_token": "fresh-access-token", "expires_in": 28800},
+            )
+        if request.url.path == "/1.2/user/-/sleep/date/2026-04-02.json":
+            return httpx.Response(
+                200,
+                json={"sleep": [{"minutesAsleep": 420, "levels": {"summary": {}}}]},
+            )
+        if request.url.path == "/1/user/-/activities/heart/date/2026-04-02/1d.json":
+            return httpx.Response(200, json={"activities-heart": []})
+        if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
+            return httpx.Response(200, json={"summary": {"steps": 1, "caloriesOut": 2}})
+        if request.url.path.startswith("/1/user/-/body/log/"):
+            return httpx.Response(403, json={"errors": [{"message": "insufficient scope"}]})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    client = FitbitApiClient(settings)
+    monkeypatch.setattr(
+        client,
+        "_build_client",
+        lambda: httpx.Client(timeout=settings.request_timeout_seconds, transport=transport),
+    )
+
+    result = client.fetch_day(date(2026, 4, 2))
+
+    assert result.sleep.total_minutes == 420
+    assert result.body.weight_kg is None
+    assert result.body.body_fat_percent is None
 
 
 def test_fitbit_api_client_reuses_access_token_between_days(
@@ -159,6 +235,9 @@ def test_fitbit_api_client_reuses_access_token_between_days(
             "/1/user/-/activities/date/2026-04-01.json",
         }:
             return httpx.Response(200, json={"summary": {"steps": 1, "caloriesOut": 2}})
+        body_response = _body_log_response(request)
+        if body_response is not None:
+            return body_response
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     transport = httpx.MockTransport(handler)
@@ -204,6 +283,9 @@ def test_fitbit_api_client_retries_after_rate_limit(monkeypatch: pytest.MonkeyPa
             return httpx.Response(200, json={"activities-heart": []})
         if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
             return httpx.Response(200, json={"summary": {"steps": 1, "caloriesOut": 2}})
+        body_response = _body_log_response(request)
+        if body_response is not None:
+            return body_response
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     transport = httpx.MockTransport(handler)
@@ -275,6 +357,9 @@ def test_fitbit_api_client_aggregates_multiple_sleep_logs(
             )
         if request.url.path == "/1/user/-/activities/date/2026-04-02.json":
             return httpx.Response(200, json={"summary": {"steps": 1234, "caloriesOut": 2222}})
+        body_response = _body_log_response(request)
+        if body_response is not None:
+            return body_response
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     transport = httpx.MockTransport(handler)

@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     fitbit_client_id: str | None = None
     fitbit_client_secret: str | None = None
     fitbit_refresh_token: str | None = None
+    body_data_source: Literal["fitbit", "google_health"] = "fitbit"
+    google_health_base_url: str = "https://health.googleapis.com"
+    google_health_token_url: str = "https://oauth2.googleapis.com/token"
+    google_health_client_id: str | None = None
+    google_health_client_secret: str | None = None
+    google_health_refresh_token: str | None = None
+    google_health_expected_user_id: str | None = None
+    google_health_allowed_source_platforms: str | None = None
     historical_bootstrap_enabled: bool = True
     historical_bootstrap_days: int = Field(default=90, ge=0, le=365)
     historical_bootstrap_max_days_per_run: int = Field(default=14, ge=1, le=365)

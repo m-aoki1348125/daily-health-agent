@@ -4,7 +4,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前夜から当朝に
 
 ## 概要
 
-- Fitbit Web API から前日データを取得
+- Fitbit Web API から睡眠・活動・体組成データを取得
 - raw JSON を Google Drive 保管庫へ保存
 - 特徴量と長期トレンドを生成
 - ルールベース判定を実施
@@ -22,6 +22,7 @@ Fitbit / Google Drive / LINE / LLM を組み合わせて、前夜から当朝に
 - このワークスペースの実行環境は確認時点で `Python 3.9.6` だったため、ローカルの完全検証には 3.11 以上の導入が必要です。
 - ローカルでは `FITBIT_CLIENT_MODE=mock`、`GOOGLE_DRIVE_MODE=local`、`LINE_CLIENT_MODE=mock`、`LLM_PROVIDER=mock` を既定にしています。
 - Fitbit は refresh token から access token を毎実行時に取得して API を呼び出します。
+- 体重・BMI・体脂肪率は Fitbit の body 系 API から取得します。Aufy などの体組成計から Fitbit に同期して使う場合、Fitbit OAuth の許可スコープに body/weight 系データの読み取りを含めて refresh token を発行してください。
 - Fitbit の refresh token はローテーションされるため、Cloud Run 実行時に取得した新しい token を Secret Manager に保存する前提です。
 - 初回 daily 実行時は、`HISTORICAL_BOOTSTRAP_DAYS` で指定した日数ぶんだけ不足している過去 Fitbit データを自動補完し、2週間待たずにトレンド比較へ使います。Fitbit のレート制限回避のため、1 回の実行で取得するのは直近から `HISTORICAL_BOOTSTRAP_MAX_DAYS_PER_RUN` 日までに制限しています。既定は 14 日です。
 - Google Drive は user OAuth refresh token を使って本人の Drive に保存します。Shared Drive がない個人 Google アカウントでも運用できます。
@@ -124,6 +125,9 @@ Secret Manager の想定 secret 名:
 - `fitbit-client-id`
 - `fitbit-client-secret`
 - `fitbit-refresh-token`
+- `google-health-client-id`
+- `google-health-client-secret`
+- `google-health-refresh-token`
 - `openai-api-key`
 - `claude-api-key`
 - `line-channel-access-token`
@@ -137,6 +141,37 @@ Secret Manager の想定 secret 名:
 `drive-root-folder-id` は Google Drive 上の保存先フォルダ ID です。user OAuth 方式では My Drive 配下のフォルダ ID を指定できます。
 
 LINE webhook は `LINE_USER_ID` に一致する本人アカウントのみ処理する構成を推奨します。`LINE_RESTRICT_TO_CONFIGURED_USER=true` の場合、別ユーザーからのメッセージは保存・参照・修正対象になりません。
+
+Fitbit の refresh token を再発行する場合は、Fitbit app の callback URL にローカル実行時に表示される URL を登録し、`weight` scope を含めて認可します。
+
+```bash
+python scripts/get_fitbit_oauth_tokens.py \
+  --client-id "$FITBIT_CLIENT_ID" \
+  --client-secret "$FITBIT_CLIENT_SECRET"
+```
+
+出力された `FITBIT_REFRESH_TOKEN` を `fitbit-refresh-token` secret に保存してください。
+
+Google Health API へ移行する場合は、Google Cloud の OAuth client に
+`http://127.0.0.1:8765/` を Authorized redirect URI として追加してから、
+ダウンロードした client secret JSON で refresh token を発行します。
+
+```bash
+python scripts/get_google_health_oauth_tokens.py \
+  /path/to/client_secret_....apps.googleusercontent.com.json
+```
+
+出力された値は `google-health-client-id`, `google-health-client-secret`,
+`google-health-refresh-token` secret として保存します。
+
+家族で同じ体重計を使う場合は、Google Health の認可ユーザーを固定し、
+混入しやすい Health Connect / Eufy 由来の raw datapoints を除外するために以下を設定します。
+`GOOGLE_HEALTH_EXPECTED_USER_ID` は `users/me/identity` の `healthUserId` です。
+
+```bash
+GOOGLE_HEALTH_EXPECTED_USER_ID=your-health-user-id
+GOOGLE_HEALTH_ALLOWED_SOURCE_PLATFORMS=FITBIT_WEB_API
+```
 
 ## daily job の実行方法
 
@@ -156,6 +191,7 @@ HEALTH_AGENT_DATE=2026-04-02 make run-daily
 
 - 必要に応じて不足している過去 Fitbit データを最大 `HISTORICAL_BOOTSTRAP_DAYS` 日の範囲から、直近優先で `HISTORICAL_BOOTSTRAP_MAX_DAYS_PER_RUN` 日ぶん backfill
 - 前日 raw を `DRIVE_LOCAL_ROOT/HealthAgent/raw/...` に保存
+- Fitbit から当日朝の睡眠・体組成、前日の活動を取得
 - `daily_report.json` と `daily_report.md` を `daily_reports/...` に保存
 - 当日に LINE 経由で記録された `meal_records/...` を health data に合流
 - DB に `daily_metrics`, `trend_features`, `advice_history`, `drive_index` を upsert
